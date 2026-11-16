@@ -151,7 +151,8 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
         <button class="chip" type="button" data-ins="proc"><svg viewBox="0 0 16 12"><rect x="1" y="2" width="14" height="8"/></svg>処理</button>
         <button class="chip" type="button" data-ins="dec"><svg viewBox="0 0 16 12"><path d="M8 1 15 6 8 11 1 6Z"/></svg>判断</button>
         <button class="chip" type="button" data-ins="no"><svg viewBox="0 0 16 12"><path d="M1 6H14M11 3l3 3-3 3"/></svg>いいえの処理</button>
-        <button class="chip" type="button" data-ins="back"><svg viewBox="0 0 16 12"><path d="M2 9H13V3H5M7 1 5 3l2 2"/></svg>戻る</button>
+        <button class="chip" type="button" data-ins="back"><svg viewBox="0 0 16 12"><path d="M2 9H13V3H5M7 1 5 3l2 2"/></svg>番号へ戻る</button>
+        <button class="chip" type="button" data-ins="stay"><svg viewBox="0 0 16 12"><path d="M1 6H10M12 2V10"/></svg>戻らない</button>
         <button class="chip" type="button" data-ins="par"><svg viewBox="0 0 16 12"><path d="M1 1.5H15M1 3.5H15M4 3.5V8M12 3.5V8M1 8.5H15M1 10.5H15"/></svg>同時進行</button>
         <button class="chip" type="button" data-ins="end"><svg viewBox="0 0 16 12"><rect x="1" y="2" width="14" height="8" rx="4"/></svg>終了</button>
       </div>
@@ -169,7 +170,9 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
             <tr><td>開始 / 終了</td><td>角丸（開始・終了）。「完了」「スタート」なども可</td></tr>
             <tr><td>在庫はある？</td><td>「？」で終わる行はひし形（判断）</td></tr>
             <tr><td>書類を作る</td><td>それ以外は四角（処理）</td></tr>
-            <tr><td>判断？ &gt; 処理</td><td>「いいえ」のとき右に処理。そのあと次の手順に合流</td></tr>
+            <tr><td>判断？ &gt; 処理</td><td>「いいえ」のとき右に処理。そのあと元の流れ（次の手順）に戻る</td></tr>
+            <tr><td>判断？ &gt; 処理 &gt; 戻らない</td><td>処理のあと元の流れに戻らない（そこで終わる）。「×」でも可</td></tr>
+            <tr><td>判断？ &gt; 処理 &gt; 戻る</td><td>処理のあと次の手順に戻る（書かなくても同じ）</td></tr>
             <tr><td>判断？ &gt; 処理 &gt; #2</td><td>処理のあと 2 番目の手順へ戻る（番号は左の青い数字）</td></tr>
             <tr><td>判断？ &gt; #5</td><td>「いいえ」のとき 5 番目の手順へ</td></tr>
             <tr><td>判断？ &gt; 終了</td><td>「いいえ」のとき右に終了</td></tr>
@@ -238,6 +241,9 @@ const FONTS = {
 const LH = 1.25;
 const START_WORDS = ["開始", "スタート", "START", "BEGIN", "はじめ", "始め", "始まり"];
 const END_WORDS = ["終了", "終わり", "おわり", "完了", "END", "STOP", "エンド", "ゴール"];
+// 「いいえ」の処理のあと、元の流れに戻るか戻らないか
+const BACK_WORDS = ["戻る", "もどる", "合流"];
+const STAY_WORDS = ["戻らない", "もどらない", "合流しない", "×", "✕"];
 const NO_LINE_START = "、。，．）」』】〕！？!?・ーぁぃぅぇぉっゃゅょァィゥェォッャュョ";
 
 const SAMPLES = {
@@ -348,8 +354,10 @@ function buildGraph(units) {
     if (down[i]) edges.push({ a: cur, b: entry[i + 1], type: "down" });
     branch[i] = false;
     if (u.kind === "block" || !u.chain.length) continue;
-    let prv = cur, col = 0, jumped = false;
+    let prv = cur, col = 0, jumped = false, stay = false;
     for (const it of u.chain) {
+      if (isWord(it, STAY_WORDS)) { stay = true; break; }
+      if (isWord(it, BACK_WORDS)) break;
       const tgt = findTarget(it, units);
       if (tgt.error) { msgs.push({ line: u.line, level: "warn", text: tgt.error }); break; }
       if (tgt.index >= 0) {
@@ -362,7 +370,7 @@ function buildGraph(units) {
       edges.push({ a: prv, b: n, type: "right" });
       prv = n;
     }
-    if (!jumped && prv !== cur && i < M - 1 && !nodes[prv].isEnd) edges.push({ a: prv, b: entry[i + 1], type: "merge" });
+    if (!jumped && !stay && prv !== cur && i < M - 1 && !nodes[prv].isEnd) edges.push({ a: prv, b: entry[i + 1], type: "merge" });
     branch[i] = jumped || prv !== cur;
   }
   const lonely = units.findIndex((u, i) => u.kind === "dec" && !branch[i]);
@@ -841,6 +849,7 @@ const INSERTS = {
   dec: () => insertLine("確認はOK？", 0, 2),
   no: () => appendLine(" > いいえの処理", 3, 6),
   back: () => appendLine(" > #1", 4, 1),
+  stay: () => appendLine(" > 戻らない", 3, 4),
   par: () => insertLine("| 作業A → 作業B\n| 作業C", 2, 3),
   end: () => insertLine("終了", 0, 2),
 };
