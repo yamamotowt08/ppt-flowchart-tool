@@ -115,6 +115,12 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
 .zoombar { position: absolute; top: 8px; right: 12px; z-index: 2; display: flex; align-items: center; gap: 2px; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 2px; box-shadow: 0 2px 8px var(--shadow); }
 .zoombar button { border: 0; background: none; border-radius: 4px; min-width: 30px; height: 28px; cursor: pointer; font-weight: 700; padding: 0 8px; }
 .zoombar button:hover { background: var(--accent-soft); }
+.linepop { position: absolute; z-index: 3; display: flex; align-items: center; gap: 4px; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 4px 6px; box-shadow: 0 4px 14px var(--shadow); font-size: 13px; }
+.linepop .lbl { color: var(--muted); padding: 0 4px; }
+.linepop button { border: 1px solid var(--rule); background: var(--panel); border-radius: 5px; padding: 3px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.linepop button svg { width: 22px; height: 6px; }
+.linepop button svg line { stroke: currentColor; stroke-width: 2; }
+.linepop button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .zoombar .pct { min-width: 3.4em; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); }
 .paper svg { display: block; width: 100%; height: auto; }
 .paper .node { cursor: grab; touch-action: none; }
@@ -251,11 +257,16 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
           <button id="zIn" type="button" title="大きく">＋</button>
           <button id="zFit" type="button" title="全体を表示">全体</button>
         </div>
+        <div class="linepop" id="linePop" role="toolbar" aria-label="線の種類" hidden>
+          <span class="lbl">線</span>
+          <button type="button" data-ls="solid"><svg viewBox="0 0 22 6"><line x1="0" y1="3" x2="22" y2="3"/></svg>実線</button>
+          <button type="button" data-ls="dashed"><svg viewBox="0 0 22 6"><line x1="0" y1="3" x2="22" y2="3" stroke-dasharray="4 3"/></svg>点線</button>
+        </div>
         <div class="scroller" id="scroller"><div class="paper" id="paper"></div></div>
       </div>
       <div class="stats">
         <span id="stats"></span>
-        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すと、つなぎ先が変わります。箱をクリックして Delete キーで、その手順を消せます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button></span>
+        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すと、つなぎ先が変わります。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選べます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button></span>
       </div>
     </section>
   </main>
@@ -838,6 +849,8 @@ function layout(g, o) {
       else { ln.lx += off[0]; ln.gy += off[1]; }
       L.moved++;
     }
+    const ls = ln.key && o.lineStyles[ln.key];
+    if (ls) ln.dashed = ls === "dashed";
     ln.pts = pts(ln);
   }
   L.dotR = Math.max(1.8, s * 0.07);
@@ -880,8 +893,11 @@ function svgOf(L, st, forImage) {
     if (ln.type === "sub") return;
     const d = `M${ln.pts.map(p => f1(p[0]) + "," + f1(p[1])).join(" L")}`;
     out.push(`<path d="${d}" fill="none" stroke="${c(st.arrow)}" stroke-width="${ln.dashed ? Math.max(0.75, st.lineW * 0.75) : st.lineW}"${ln.dashed ? ' stroke-dasharray="4 3"' : ""}${ln.arrow ? ' marker-end="url(#ah)"' : ""}/>`);
-    // つかみやすいように、見えない太い線を重ねる
-    if (!forImage && WIRE_CURSOR[ln.route]) out.push(`<path class="wire" data-w="${i}" d="${d}" fill="none" stroke="#1D6A84" stroke-opacity="0" stroke-width="9" style="cursor:${WIRE_CURSOR[ln.route]}"/>`);
+    if (forImage) return;
+    // 選んでいる線は色を付けて目立たせる
+    if (ln.key && ln.key === selWire) out.push(`<path d="${d}" fill="none" stroke="#E0752D" stroke-opacity=".45" stroke-width="5" pointer-events="none"/>`);
+    // つかみやすいように、見えない太い線を重ねる（クリックで線の種類、曲がった線はドラッグで移動）
+    out.push(`<path class="wire" data-w="${i}" d="${d}" fill="none" stroke="#1D6A84" stroke-opacity="0" stroke-width="9" style="cursor:${WIRE_CURSOR[ln.route] || "pointer"}"/>`);
   });
   L.nodes.forEach((n, i) => {
     if (n.kind === "bar") {
@@ -1089,11 +1105,13 @@ const optIds = ["optSize", "optStyle", "optFont", "optShape", "optNum", "optTitl
 let state = null;
 let offsets = {};   // ドラッグで動かした量（図形ごと、pt）
 let rewires = {};   // 付け替えた矢印（矢印ごと、はし → 箱）
+let lineStyles = {};   // 線ごとの実線・点線
+let selWire = null;    // 選んでいる線
 
 function options() {
   return {
     size: $("optSize").value, style: $("optStyle").value, font: $("optFont").value,
-    shape: $("optShape").value || "same", num: $("optNum").value !== "none", title: clean($("optTitle").value), offsets, rewires,
+    shape: $("optShape").value || "same", num: $("optNum").value !== "none", title: clean($("optTitle").value), offsets, rewires, lineStyles,
   };
 }
 
@@ -1158,7 +1176,7 @@ function markCurrent() {
 
 function save() {
   try {
-    const o = { src: ta.value, offsets, rewires, lineIds };
+    const o = { src: ta.value, offsets, rewires, lineIds, lineStyles };
     optIds.forEach(id => { o[id] = $(id).value; });
     localStorage.setItem("fc-tool-v1", JSON.stringify(o));
   } catch (e) { /* 保存できなくても動く */ }
@@ -1170,6 +1188,7 @@ function load() {
   if (o) optIds.forEach(id => { if (typeof o[id] === "string") $(id).value = o[id]; });
   if (o && o.offsets && typeof o.offsets === "object") offsets = o.offsets;
   if (o && o.rewires && typeof o.rewires === "object") rewires = o.rewires;
+  if (o && o.lineStyles && typeof o.lineStyles === "object") lineStyles = o.lineStyles;
   if (o && Array.isArray(o.lineIds) && o.lineIds.length === ta.value.split("\n").length) {
     lineIds = o.lineIds;
     prevLines = ta.value.split("\n");
@@ -1356,6 +1375,38 @@ ta.addEventListener("keydown", e => {
 });
 ta.addEventListener("mousedown", () => { picked = null; });
 
+// 線をクリックすると「実線／点線」を選べる
+const linePop = $("linePop");
+function showLinePop(key, cx, cy) {
+  selWire = key;
+  update();
+  const ln = state.L.lines.find(l => l.key === key);
+  if (!ln) return hideLinePop();
+  linePop.querySelectorAll("[data-ls]").forEach(b => b.classList.toggle("on", (b.dataset.ls === "dashed") === !!ln.dashed));
+  linePop.hidden = false;
+  const box = linePop.parentElement.getBoundingClientRect();
+  const x = Math.min(Math.max(8, cx - box.left + 10), box.width - linePop.offsetWidth - 8);
+  const y = Math.min(Math.max(44, cy - box.top + 12), box.height - linePop.offsetHeight - 8);
+  linePop.style.left = `${x}px`;
+  linePop.style.top = `${y}px`;
+}
+function hideLinePop() {
+  if (linePop.hidden && !selWire) return;
+  linePop.hidden = true;
+  selWire = null;
+  update();
+}
+linePop.addEventListener("click", e => {
+  const b = e.target.closest("[data-ls]");
+  if (!b || !selWire) return;
+  lineStyles[selWire] = b.dataset.ls;
+  update();
+  commit();
+  linePop.querySelectorAll("[data-ls]").forEach(x => x.classList.toggle("on", x === b));
+});
+paper.addEventListener("pointerdown", e => { if (selWire && !e.target.closest(".wire")) hideLinePop(); }, true);
+document.addEventListener("keydown", e => { if (e.key === "Escape" && selWire) hideLinePop(); });
+
 // 図形のドラッグ（少しでも動かしたら移動、動かさなければその行へ）
 let drag = null, dragFrame = 0;
 function svgPoint(e) {
@@ -1476,6 +1527,7 @@ paper.addEventListener("pointerdown", e => {
   drag = {
     key: n.key, line: el.dataset.line !== undefined ? +el.dataset.line : -1, start: svgPoint(e),
     base: (offsets[n.key] || [0, 0]).slice(), moved: false, dot: dotEl ? n : null, route: el === wireEl ? n.route : null,
+    wire: el === wireEl, x: e.clientX, y: e.clientY,
   };
   e.preventDefault();
 });
@@ -1491,6 +1543,8 @@ window.addEventListener("pointermove", e => {
     // 点は矢印や図形のふちの近くに来たら吸い付く
     const d = drag.dot, q = snapPoint([d.x0 + drag.base[0] + dx, d.y0 + drag.base[1] + dy], state.L.snap);
     offsets[drag.key] = [q[0] - d.x0, q[1] - d.y0];
+  } else if (drag.wire && !["v3", "h3", "j4"].includes(drag.route)) {
+    return;   // まっすぐな線は動かさない
   } else {
     // 線は曲がる向きにだけ動く
     offsets[drag.key] = [drag.base[0] + (drag.route === "v3" ? 0 : dx), drag.base[1] + (drag.route === "h3" ? 0 : dy)];
@@ -1505,6 +1559,7 @@ window.addEventListener("pointerup", e => {
   drag = null;
   paper.classList.remove("dragging");
   if (d.moved) commit();
+  else if (d.wire) showLinePop(d.key, d.x, d.y);
   else if (d.line >= 0) selectLine(d.line);
 });
 $("btnReset").addEventListener("click", () => {
@@ -1522,7 +1577,7 @@ $("btnCopy").addEventListener("click", copyImage);
 const past = [], future = [];
 let current = "";
 function snapshot() {
-  return JSON.stringify({ src: ta.value, offsets, rewires, lineIds, opts: optIds.map(id => $(id).value) });
+  return JSON.stringify({ src: ta.value, offsets, rewires, lineIds, lineStyles, opts: optIds.map(id => $(id).value) });
 }
 function refreshUndo() {
   $("btnUndo").disabled = !past.length && snapshot() === current;
@@ -1545,6 +1600,7 @@ function restore(snap) {
   if (o.lineIds) { lineIds = o.lineIds; prevLines = o.src.split("\n"); }
   offsets = o.offsets;
   rewires = o.rewires;
+  lineStyles = o.lineStyles || {};
   optIds.forEach((id, i) => { $(id).value = o.opts[i]; });
   current = snap;
   update();
