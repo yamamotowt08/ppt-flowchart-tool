@@ -268,7 +268,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       </div>
       <div class="stats">
         <span id="stats"></span>
-        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すと、つなぎ先が変わります。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりできます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
+        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すとつなぎ先が変わり、何もない所で離すとそこまで伸びます。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりできます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
       </div>
     </section>
   </main>
@@ -789,10 +789,14 @@ function layout(g, o) {
     const key = `～${e.type}|${kOf(e.a)}|${kOf(e.b)}|`;
     const rw = o.rewires[key];
     if (rw) {
-      const na = rw.a !== undefined ? byKey[rw.a] : e.a, nb = rw.b !== undefined ? byKey[rw.b] : e.b;
-      if (na !== undefined && nb !== undefined && na !== nb) {
-        const ln = { type: e.type, a: na, b: nb, arrow: true, key, edge: true };
-        routeBetween(g.nodes[na], g.nodes[nb], ln);
+      // はしは「箱」か「何もない所の点（伸ばした先）」
+      const endOf = (v, def) => v === undefined ? g.nodes[def]
+        : typeof v === "string" ? (byKey[v] !== undefined ? g.nodes[byKey[v]] : null)
+        : { x: v.x, y: v.y, w: 0, h: 0, free: true };
+      const A = endOf(rw.a, e.a), B = endOf(rw.b, e.b);
+      if (A && B && A !== B) {
+        const ln = { type: e.type, a: A.free ? -1 : A.idx, b: B.free ? -1 : B.idx, freeA: A.free ? A : null, freeB: B.free ? B : null, arrow: true, key, edge: true };
+        routeBetween(A, B, ln);
         L.lines.push(ln);
         L.moved++;
         continue;
@@ -935,8 +939,10 @@ function svgOf(L, st, forImage) {
   if (!forImage) L.lines.forEach((ln, i) => {
     if (!ln.edge) return;
     for (const [end, p] of [["a", ln.S], ["b", ln.E]]) {
-      if (L.nodes[ln[end]].kind === "bar") continue;
-      out.push(`<circle class="end" data-w="${i}" data-end="${end}" cx="${f1(p[0])}" cy="${f1(p[1])}" r="5" fill="#E0752D" fill-opacity="0"/>`);
+      if (ln[end] >= 0 && L.nodes[ln[end]].kind === "bar") continue;
+      // 伸ばして何にもつながっていないはしは、うっすら見せておく
+      const free = ln[end] < 0;
+      out.push(`<circle class="end" data-w="${i}" data-end="${end}" cx="${f1(p[0])}" cy="${f1(p[1])}" r="5" fill="#E0752D" fill-opacity="${free ? 0.3 : 0}"/>`);
     }
   });
   L.dots.forEach((d, i) => out.push(`<g class="dot" data-dot="${i}"><circle cx="${f1(d.x)}" cy="${f1(d.y)}" r="${f1(Math.max(7, L.dotR * 2.5))}" fill="#000000" fill-opacity="0"/><circle cx="${f1(d.x)}" cy="${f1(d.y)}" r="${f1(L.dotR)}" fill="${c(st.arrow)}"/></g>`));
@@ -1042,7 +1048,8 @@ function slideXml(L, st, font) {
     if (ln.type === "branch") { out.push(connXml(ln, dotOf(ln), [ids[ln.b], 0])); continue; }
     if (ln.type === "rejoin") { out.push(connXml(ln, [ids[ln.a], 2], dotOf(ln))); continue; }
     const [sa, sb] = ln.sites || SITES[ln.type];
-    out.push(connXml(ln, L.nodes[ln.a].kind !== "bar" ? [ids[ln.a], sa] : null, L.nodes[ln.b].kind !== "bar" ? [ids[ln.b], sb] : null));
+    const glue = (v, site) => (v >= 0 && L.nodes[v].kind !== "bar" ? [ids[v], site] : null);
+    out.push(connXml(ln, glue(ln.a, sa), glue(ln.b, sb)));
   }
   if (L.title) {
     const t = L.title;
@@ -1511,6 +1518,7 @@ function startEndDrag(el, e) {
 }
 function moveEndDrag(e) {
   const p = svgPoint(e);
+  endDrag.p = { x: p.x, y: p.y };
   endDrag.ghost.setAttribute("x2", p.x); endDrag.ghost.setAttribute("y2", p.y);
   const t = shapeAt(p);
   endDrag.target = t !== null && t !== endDrag.other ? t : null;
@@ -1521,9 +1529,17 @@ function finishEndDrag() {
   const d = endDrag;
   endDrag = null;
   paper.classList.remove("dragging");
-  if (d.target === null) { update(); return; }
-  const n = state.L.nodes[d.target];
   const prev = rewires[d.ln.key];
+  if (d.target === null) {
+    // 何もない所で離したら、そこまで矢印を伸ばす
+    if (!d.p) { update(); return; }
+    rewires[d.ln.key] = Object.assign({}, prev, { [d.end]: { x: Math.round(d.p.x * 10) / 10, y: Math.round(d.p.y * 10) / 10 } });
+    update();
+    commit();
+    toast(`矢印の${d.end === "b" ? "先" : "根元"}を伸ばしました。`, "元に戻す", undo);
+    return;
+  }
+  const n = state.L.nodes[d.target];
   rewires[d.ln.key] = Object.assign({}, prev, { [d.end]: n.key });
   update();
   commit();
