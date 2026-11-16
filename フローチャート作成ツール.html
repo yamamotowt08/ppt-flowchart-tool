@@ -1511,16 +1511,49 @@ function startEndDrag(el, e) {
   ghost.setAttribute("x2", p.x); ghost.setAttribute("y2", p.y);
   ghost.setAttribute("stroke", "#E0752D"); ghost.setAttribute("stroke-width", "2"); ghost.setAttribute("stroke-dasharray", "5 3");
   svg.appendChild(ghost);
+  // 揃った向きを示す補助線（縦・横）
+  const guide = () => {
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    g.setAttribute("stroke", "#1D6A84"); g.setAttribute("stroke-width", "0.8"); g.setAttribute("stroke-dasharray", "3 3");
+    g.setAttribute("visibility", "hidden");
+    svg.appendChild(g);
+    return g;
+  };
   el.classList.add("on");
-  endDrag = { ln, end, ghost, other: end === "b" ? ln.a : ln.b, target: null };
+  endDrag = { ln, end, ghost, gx: guide(), gy: guide(), other: end === "b" ? ln.a : ln.b, target: null };
   paper.classList.add("dragging");
   e.preventDefault();
 }
+// 伸ばした先の補正：反対のはしとまっすぐ（縦・横）にそろえるのを優先し、
+// 次にほかの箱の中心・ふちや線の位置にそろえる
+function alignPoint(p, d) {
+  const L = state.L, k = paper.querySelector("svg").getScreenCTM().a;
+  const fixedPt = d.end === "b" ? d.ln.S : d.ln.E, fixedNode = d.end === "b" ? d.ln.a : d.ln.b;
+  const near = (v, list, th) => { let b = null, dist = th; for (const c of list) { const dd = Math.abs(c - v); if (dd < dist) { dist = dd; b = c; } } return b; };
+  const fx = [fixedPt[0]], fy = [fixedPt[1]];
+  if (fixedNode >= 0 && isShape(L.nodes[fixedNode])) { fx.push(L.nodes[fixedNode].x); fy.push(L.nodes[fixedNode].y); }
+  const xs = [], ys = [];
+  for (const n of L.nodes) if (isShape(n)) { xs.push(n.x, n.x - n.w / 2, n.x + n.w / 2); ys.push(n.y, topOf(n), bottomOf(n)); }
+  for (const n of L.notes) { xs.push(n.x, n.x - n.w / 2); ys.push(n.y); }
+  for (const l of L.lines) if (l.key !== d.ln.key) for (const q of l.pts) { xs.push(q[0]); ys.push(q[1]); }
+  const sx = near(p.x, fx, 14 / k) ?? near(p.x, xs, 8 / k);
+  const sy = near(p.y, fy, 14 / k) ?? near(p.y, ys, 8 / k);
+  return { x: sx ?? p.x, y: sy ?? p.y, sx, sy };
+}
 function moveEndDrag(e) {
-  const p = svgPoint(e);
-  endDrag.p = { x: p.x, y: p.y };
+  const raw = svgPoint(e);
+  const t = shapeAt(raw);
+  const a = t === null ? alignPoint(raw, endDrag) : { x: raw.x, y: raw.y, sx: null, sy: null };
+  const p = { x: a.x, y: a.y };
+  endDrag.p = p;
   endDrag.ghost.setAttribute("x2", p.x); endDrag.ghost.setAttribute("y2", p.y);
-  const t = shapeAt(p);
+  const L = state.L;
+  for (const [g, v, horiz] of [[endDrag.gx, a.sx, false], [endDrag.gy, a.sy, true]]) {
+    g.setAttribute("visibility", v === null || v === undefined ? "hidden" : "visible");
+    if (v === null || v === undefined) continue;
+    if (horiz) { g.setAttribute("x1", 0); g.setAttribute("x2", L.W); g.setAttribute("y1", v); g.setAttribute("y2", v); }
+    else { g.setAttribute("y1", 0); g.setAttribute("y2", L.H); g.setAttribute("x1", v); g.setAttribute("x2", v); }
+  }
   endDrag.target = t !== null && t !== endDrag.other ? t : null;
   paper.querySelectorAll(".node.drop").forEach(g => g.classList.remove("drop"));
   if (endDrag.target !== null) { const g = paper.querySelector(`.node[data-i="${endDrag.target}"]`); if (g) g.classList.add("drop"); }
