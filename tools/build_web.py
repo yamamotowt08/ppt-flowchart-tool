@@ -1,4 +1,4 @@
-"""ブラウザ版（フローチャート作成ツール.html）を作る。
+"""ツール本体（app/tool.html、EXE の中に入る）を作る。
 
 web/app.html の __PPTX_TEMPLATE__ に、python-pptx の標準テンプレート
 （スライドマスター・レイアウト・テーマ）を埋め込む。
@@ -10,7 +10,7 @@ from pptx import Presentation
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, 'web', 'app.html')
-OUT = os.path.join(ROOT, 'フローチャート作成ツール.html')
+OUT = os.path.join(ROOT, 'app', 'tool.html')
 
 SKIP = ('ppt/printerSettings/', 'docProps/thumbnail', 'ppt/slides/')
 
@@ -47,7 +47,7 @@ def main():
     assert html.count('__PPTX_TEMPLATE__') == 1
     page = html.replace('__PPTX_TEMPLATE__', data)
 
-    # ダブルクリックで開くローカル版
+    # EXE の中に入れるツール本体
     with open(OUT, 'w', encoding='utf-8') as f:
         f.write('<!doctype html>\n<html lang="ja">\n<head>\n<meta charset="utf-8">\n'
                 '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'

@@ -1,2 +1,7 @@
 .claude/
 __pycache__/
+app/bin/
+app/obj/
+app/tool.html
+dist/
+*.exe
