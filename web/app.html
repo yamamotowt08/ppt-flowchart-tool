@@ -135,6 +135,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
         <h2 id="hSteps">手順</h2>
         <select id="sample" aria-label="サンプルを入れる">
           <option value="">サンプルを入れる…</option>
+          <option value="word">業務フロー（Word の例）</option>
           <option value="gyomu">業務の流れ（例）</option>
           <option value="shinsei">申請と承認（例）</option>
           <option value="chumon">注文の受付（例）</option>
@@ -144,6 +145,9 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       <div class="inserts" role="toolbar" aria-label="行を追加">
         <button class="chip" type="button" data-ins="start"><svg viewBox="0 0 16 12"><rect x="1" y="2" width="14" height="8" rx="4"/></svg>開始</button>
         <button class="chip" type="button" data-ins="proc"><svg viewBox="0 0 16 12"><rect x="1" y="2" width="14" height="8"/></svg>処理</button>
+        <button class="chip" type="button" data-ins="sub"><svg viewBox="0 0 16 12"><rect x="1" y="1" width="14" height="10"/><rect x="3.5" y="5" width="9" height="4"/></svg>小項目</button>
+        <button class="chip" type="button" data-ins="memo"><svg viewBox="0 0 16 12"><circle cx="3" cy="6" r="1.6"/><path d="M5 6H9"/><rect x="9.5" y="3" width="6" height="6"/></svg>照査・打合せ</button>
+        <button class="chip" type="button" data-ins="side"><svg viewBox="0 0 16 12"><path d="M14 1V11M14 3H4V8"/><rect x="1" y="8" width="6" height="3.5"/></svg>並行（左）</button>
         <button class="chip" type="button" data-ins="dec"><svg viewBox="0 0 16 12"><path d="M8 1 15 6 8 11 1 6Z"/></svg>判断</button>
         <button class="chip" type="button" data-ins="no"><svg viewBox="0 0 16 12"><path d="M1 6H14M11 3l3 3-3 3"/></svg>いいえの処理</button>
         <button class="chip" type="button" data-ins="back"><svg viewBox="0 0 16 12"><path d="M2 9H13V3H5M7 1 5 3l2 2"/></svg>番号へ戻る</button>
@@ -172,8 +176,11 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
             <tr><td>判断？ &gt; #5</td><td>「いいえ」のとき 5 番目の手順へ</td></tr>
             <tr><td>判断？ &gt; 終了</td><td>「いいえ」のとき右に終了</td></tr>
             <tr><td>| 作業A → 作業B<br>| 作業C</td><td>「|」で始まる行が続くと同時進行（1 行が 1 列）。→ で同じ列の次の作業。前後は二重線で分かれて合流します</td></tr>
+            <tr><td>・小項目</td><td>すぐ上の手順の中に小さな箱で入る（例：・基礎工の検討）</td></tr>
+            <tr><td>@照査、打合せ</td><td>右に照査・打合せの箱を付ける。手順の見出しのすぐ下なら見出しの横、小項目の間ならその間、最後なら次の手順との間に付きます</td></tr>
+            <tr><td>&lt; 作業 &gt; 図面作成</td><td>すぐ上の手順と並行して左で進み、「図面作成」の前で本線に合流（破線）。「&gt; #9」のように番号でも可。下に「・」で小項目も書けます</td></tr>
             <tr><td>※ メモ</td><td>図には出ません</td></tr>
-            <tr><td>○ / ◇ / □</td><td>行の先頭に付けると形を指定（例：○ 受付完了）</td></tr>
+            <tr><td>○ / ◇ / □</td><td>行の先頭に付けて空白を入れると形を指定（例：○ 受付完了）</td></tr>
           </table>
         </div>
       </details>
@@ -191,8 +198,15 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
         </label>
         <label>色
           <select id="optStyle">
+            <option value="gyomu">業務フロー（黄色）</option>
             <option value="color">カラー</option>
             <option value="mono">白黒（資料向け）</option>
+          </select>
+        </label>
+        <label>番号
+          <select id="optNum">
+            <option value="auto">付ける（1. / (1) / ①）</option>
+            <option value="none">付けない</option>
           </select>
         </label>
         <label>形
@@ -228,9 +242,14 @@ const TEMPLATE = __PPTX_TEMPLATE__;
 
 // ---------- 設定 ----------
 const SIZES = { w169: [960, 540], s43: [720, 540], a4p: [540, 780], a4l: [780, 540] };
+// head=小項目つきの見出し / body=小項目の外枠 / sub=小項目 / notes=照査・打合せなど
 const STYLES = {
-  color: { proc: ["DEEBF7", "2E75B6"], term: ["E2EFDA", "548235"], dec: ["FFF2CC", "BF9000"], text: "262626", arrow: "595959", lineW: 1.5 },
-  mono:  { proc: ["FFFFFF", "000000"], term: ["FFFFFF", "000000"], dec: ["FFFFFF", "000000"], text: "000000", arrow: "000000", lineW: 1 },
+  gyomu: { proc: ["FFFF99", "000000"], term: ["FFFF99", "000000"], dec: ["FFFF99", "000000"], text: "000000", arrow: "000000", lineW: 1,
+           head: "FFFF99", body: "FFFFFF", sub: ["FFFFFF", "000000"], notes: { check: "CCFFFF", meet: "FF99CC", other: "F2F2F2" } },
+  color: { proc: ["DEEBF7", "2E75B6"], term: ["E2EFDA", "548235"], dec: ["FFF2CC", "BF9000"], text: "262626", arrow: "595959", lineW: 1.5,
+           head: "DEEBF7", body: "FFFFFF", sub: ["FFFFFF", "2E75B6"], notes: { check: "DDF2F7", meet: "FBE3EC", other: "F2F2F2" } },
+  mono:  { proc: ["FFFFFF", "000000"], term: ["FFFFFF", "000000"], dec: ["FFFFFF", "000000"], text: "000000", arrow: "000000", lineW: 1,
+           head: "FFFFFF", body: "FFFFFF", sub: ["FFFFFF", "000000"], notes: { check: "FFFFFF", meet: "FFFFFF", other: "FFFFFF" } },
 };
 const FONTS = {
   meiryoui: ["Meiryo UI", '"Meiryo UI", Meiryo, "BIZ UDPGothic", sans-serif'],
@@ -241,13 +260,14 @@ const FONTS = {
 };
 const LH = 1.25;
 const START_WORDS = ["開始", "スタート", "START", "BEGIN", "はじめ", "始め", "始まり"];
-const END_WORDS = ["終了", "終わり", "おわり", "完了", "END", "STOP", "エンド", "ゴール"];
+const END_WORDS = ["終了", "終わり", "おわり", "完了", "END", "STOP", "エンド", "ゴール", "業務納品", "納品"];
 // 「いいえ」の処理のあと、元の流れに戻るか戻らないか
 const BACK_WORDS = ["戻る", "もどる", "合流"];
 const STAY_WORDS = ["戻らない", "もどらない", "合流しない", "×", "✕"];
 const NO_LINE_START = "、。，．）」』】〕！？!?・ーぁぃぅぇぉっゃゅょァィゥェォッャュョ";
 
 const SAMPLES = {
+  word: "※ 例：業務フロー（Word の例をもとにしています）\n設計計画\n@照査、打合せ\n現地踏査\n基本事項の検討\n@打合せ\n・あああああ\n@打合せ\n・いいいいい\n@打合せ\n・構造物との取付検討\n@打合せ\n組み合わせ検討\n本体設計\n・基礎工検討諸元の整理\n・安定計算\n< ○○対策設計 > 図面作成\n・洗掘防止対策の検討\n・対策設計\n・河道断面の計算\n付帯施設設計\n・階段\n@照査、打合せ\n施工計画\n・施工計画、仮設計画\n図面作成\n・図面作成\n数量計算\n報告書作成\n@照査、打合せ\n業務納品",
   gyomu: "※ 例：調査業務の流れ（自由に書き換えてください）\n開始\n打合せ\n| 現地踏査 → 写真・データ整理\n| 既存資料の収集 → 資料整理\n| 関係機関への照会\n図面・資料作成\n社内照査はOK？ > 修正する > #4\n発注者協議\n協議で了承された？ > 修正対応 > #4\n報告書提出\n終了",
   shinsei: "※ 例：申請と承認\n開始\n申請書を書く\n内容は正しい？ > 書き直す > #2\n上司の承認は得た？ > 差し戻し対応 > 再申請する > #2\n予算内？ > 終了\n発注する\n納品を確認する\n終了",
   chumon: "※ 例：注文の受付\n開始\n注文を受け付ける\n会員登録済み？ > 会員登録をしてもらう\n在庫はある？ > 取り寄せる > #4\n商品を発送する\n終了",
@@ -260,16 +280,10 @@ function isWord(t, list) {
   t = clean(t).toUpperCase().replace(/[。.!！]+$/, "");
   return t !== "" && list.includes(t);
 }
-function stripMark(s) {
-  let m = s.match(/^[・\-*]\s*(.+)$/);
-  if (m) return clean(m[1]);
-  m = s.match(/^[0-9０-９]+[.．)）、:：](?![0-9０-９])\s*(.+)$/);
-  if (m) return clean(m[1]);
-  return s;
-}
 function classify(raw) {
   let t = clean(raw), kind = "proc", forced = false;
-  const f = t.charAt(0);
+  // 形の指定は「○ 受付完了」のように記号のあとに空白があるときだけ（「○○対策」はそのまま）
+  const f = /^[○◯◇◆□■][\s　]/.test(t) ? t.charAt(0) : "";
   if (f && "○◯".includes(f)) { kind = "term"; forced = true; }
   else if (f && "◇◆".includes(f)) { kind = "dec"; forced = true; }
   else if (f && "□■".includes(f)) { forced = true; }
@@ -279,38 +293,83 @@ function classify(raw) {
   return { text: t, kind, isEnd: kind === "term" && isWord(t, END_WORDS) };
 }
 
-// 「|」で始まる行は同時進行の列（1 行が 1 列、→ で同じ列の次の作業）
-const LANE_RE = /^[|｜]\s*/;
-function parse(src) {
+const LANE_RE = /^[|｜]\s*/;          // 同時進行の列（1 行が 1 列、→ で同じ列の次の作業）
+const SUB_RE = /^[・･\-*]\s*/;         // 小項目（直前の手順の中に入る）
+const SIDE_RE = /^[<＜]\s*/;          // 左に並行して進む手順（> で合流先）
+const NOTE_RE = /^[@＠]\s*/;          // 照査・打合せなど（右に付く）
+const NUM_RE = /^[0-9０-９]+[.．)）、:：](?![0-9０-９])\s*/;
+const SUBNUM_RE = /^[（(][0-9０-９]+[)）]\s*/;
+
+function parse(src, autoNum) {
   const lines = src.replace(/\r\n?/g, "\n").split("\n");
-  const units = [], lineInfo = [];
-  let block = null;
+  const units = [], sides = [], lineInfo = [];
+  let block = null, side = null, lastMain = null, lastStep = null;
+  // 番号を自動で付けるときは、手で書いた番号を外しておく
+  const stepText = t => (autoNum ? clean(t.replace(NUM_RE, "")) : t);
+  const subText = t => (autoNum ? clean(t.replace(SUBNUM_RE, "").replace(NUM_RE, "")) : t);
+
   lines.forEach((ln, i) => {
-    const s = clean(ln);
+    let s = clean(ln);
     if (!s) { lineInfo.push({ type: "blank" }); return; }
     if (/^(※|'|\/\/)/.test(s)) { lineInfo.push({ type: "note" }); return; }
+
+    if (NOTE_RE.test(s)) {
+      const items = s.replace(NOTE_RE, "").split(/[、,，・\/／]/).map(clean).filter(Boolean);
+      // 見出しのすぐ後 → 見出しの横 / 小項目の間 → その間 / 最後 → 次の手順との間
+      if (lastMain && items.length) lastMain.notes.push({ pos: lastStep === lastMain ? lastMain.subs.length : Infinity, items, line: i });
+      lineInfo.push({ type: "memo" });
+      return;
+    }
+    if (SUB_RE.test(s) && lastStep) {
+      const t = clean(s.replace(SUB_RE, ""));
+      if (t) lastStep.subs.push({ text: subText(t), line: i });
+      lineInfo.push({ type: "sub" });
+      return;
+    }
     if (LANE_RE.test(s)) {
       const lane = s.replace(LANE_RE, "").split(/→|->|⇒|＞|>/).map(clean).filter(Boolean)
-        .map(t => Object.assign(classify(t), { line: i }));
+        .map(t => Object.assign(classify(stepText(t)), { line: i, subs: [] }));
       if (!block) {
-        block = { kind: "block", lanes: [], line: i };
+        block = { kind: "block", lanes: [], line: i, notes: [], subs: [] };
         units.push(block);
         lineInfo.push({ type: "lane", n: units.length });
       } else {
         lineInfo.push({ type: "lane" });
       }
-      block.lanes.push(lane.length ? lane : [Object.assign(classify(""), { line: i })]);
+      block.lanes.push(lane.length ? lane : [Object.assign(classify(""), { line: i, subs: [] })]);
+      side = null; lastStep = null; lastMain = block;
       return;
     }
-    block = null;
+    if (SIDE_RE.test(s) && lastMain && lastMain.kind !== "block") {
+      const t = s.replace(SIDE_RE, "").replace(/＞/g, ">");
+      const p = t.indexOf(">");
+      const head = p >= 0 ? t.slice(0, p) : t;
+      const target = p >= 0 ? clean(t.slice(p + 1).split(">")[0]) : "";
+      if (!side) { side = { after: lastMain, items: [], target: "", line: i }; sides.push(side); }
+      if (target) side.target = target;
+      for (const part of head.split(/→|->|⇒/).map(clean).filter(Boolean)) {
+        const st = Object.assign(classify(stepText(part)), { subs: [], line: i });
+        side.items.push(st);
+        lastStep = st;
+      }
+      block = null;
+      lineInfo.push({ type: "side" });
+      return;
+    }
+
+    block = null; side = null;
+    if (SUB_RE.test(s)) s = clean(s.replace(SUB_RE, ""));
+    if (SIDE_RE.test(s)) s = clean(s.replace(SIDE_RE, ""));
     const t = s.replace(/＞/g, ">");
     const p = t.indexOf(">");
     const head = p >= 0 ? t.slice(0, p) : t;
     const chain = p >= 0 ? t.slice(p + 1).split(">").map(clean).filter(Boolean) : [];
-    units.push(Object.assign(classify(stripMark(clean(head))), { chain, line: i }));
+    const u = Object.assign(classify(stepText(clean(head))), { chain, line: i, subs: [], notes: [] });
+    units.push(u);
+    lastMain = lastStep = u;
     lineInfo.push({ type: "step", n: units.length });
   });
-  return { units, lineInfo };
+  return { units, sides, lineInfo };
 }
 
 function findTarget(it, units) {
@@ -322,11 +381,12 @@ function findTarget(it, units) {
     return { index: n - 1 };
   }
   if (isWord(it, START_WORDS) || isWord(it, END_WORDS)) return { index: -1 };
-  return { index: units.findIndex(u => u.kind !== "block" && u.text === it) };
+  const t = clean(it.replace(NUM_RE, ""));
+  return { index: units.findIndex(u => u.kind !== "block" && (u.text === it || u.text === t)) };
 }
 
-// 図形（nodes）と矢印（edges）を作る。同時進行は分かれ目と合流の二重線（bar）で挟む
-function buildGraph(units) {
+// 図形（nodes）と矢印（edges）を作る
+function buildGraph(units, sides) {
   const nodes = [], edges = [], msgs = [], M = units.length;
   const entry = [], exit = [];
   const add = n => nodes.push(n) - 1;
@@ -348,11 +408,10 @@ function buildGraph(units) {
     }
   });
 
-  const branch = [], down = [];
+  const branch = [];
   for (let i = 0; i < M; i++) {
     const u = units[i], cur = exit[i];
-    down[i] = i < M - 1 && !(u.kind !== "block" && u.isEnd);
-    if (down[i]) edges.push({ a: cur, b: entry[i + 1], type: "down" });
+    if (i < M - 1 && !(u.kind !== "block" && u.isEnd)) edges.push({ a: cur, b: entry[i + 1], type: "down" });
     branch[i] = false;
     if (u.kind === "block" || !u.chain.length) continue;
     let prv = cur, col = 0, jumped = false, stay = false;
@@ -367,21 +426,38 @@ function buildGraph(units) {
         break;
       }
       col++;
-      const n = add(Object.assign(classify(it), { unit: i, col, line: u.line, side: true }));
+      const n = add(Object.assign(classify(it), { unit: i, col, line: u.line, side: true, subs: [] }));
       edges.push({ a: prv, b: n, type: "right" });
       prv = n;
     }
     if (!jumped && !stay && prv !== cur && i < M - 1 && !nodes[prv].isEnd) edges.push({ a: prv, b: entry[i + 1], type: "merge" });
     branch[i] = jumped || prv !== cur;
   }
+
+  // 左に並行して進む手順
+  const sideLanes = [];
+  for (const sd of sides) {
+    const from = units.indexOf(sd.after);
+    let to = from + 1;
+    if (sd.target) {
+      const t = findTarget(sd.target, units);
+      if (t.error) msgs.push({ line: sd.line, level: "warn", text: t.error });
+      else if (t.index < 0) msgs.push({ line: sd.line, level: "warn", text: `合流先の「${sd.target}」という手順が見つかりません。` });
+      else if (t.index <= from) msgs.push({ line: sd.line, level: "warn", text: "合流先は、分かれた手順より下の手順にしてください。" });
+      else to = t.index;
+    }
+    const ids = sd.items.map(it => add(Object.assign({}, it, { sideLane: true })));
+    for (let k = 0; k < ids.length - 1 && !nodes[ids[k]].isEnd; k++) edges.push({ a: ids[k], b: ids[k + 1], type: "down" });
+    sideLanes.push({ from, to: to < M ? to : -1, ids, line: sd.line });
+  }
+
   const lonely = units.findIndex((u, i) => u.kind === "dec" && !branch[i]);
   if (lonely >= 0 && !msgs.length) {
     msgs.push({ line: units[lonely].line, level: "info", text: "判断（？）に「いいえ」の行き先がありません。行の最後に「> 処理」や「> #番号」を付けると右に分かれます。" });
   }
-  const rows = units.reduce((s, u) => s + (u.kind === "block" ? Math.max(...u.lanes.map(l => l.length)) + 1 : 1), 0);
-  if (rows > 14) msgs.push({ line: -1, level: "info", text: "手順が多いので図が小さくなります。2 枚に分けると見やすくなります。" });
-  return { nodes, edges, msgs, units, entry, exit, branch, M };
+  return { nodes, edges, msgs, units, entry, exit, branch, sideLanes, M };
 }
+
 // ---------- 文字の折り返し ----------
 const mctx = document.createElement("canvas").getContext("2d");
 function textWidth(t, fs, fam) { mctx.font = `${fs}px ${fam}`; return mctx.measureText(t).width; }
@@ -394,78 +470,144 @@ function wrap(text, maxW, fs, fam) {
   if (cur || !lines.length) lines.push(cur);
   return lines;
 }
-function textBox(n) {
-  if (n.look === "dec") return { w: n.w * 0.5, h: n.h * 0.62, ins: 0 };
-  if (n.look === "term") return { w: n.w * 0.906 - 6, h: n.h * 0.86, ins: 3 };
-  return { w: n.w - 6, h: n.h - 2, ins: 3 };
+// 文字を入れる枠（図形の形ごと）
+function textBox(t) {
+  if (t.look === "dec") return { w: t.w * 0.5, h: t.h * 0.62, ins: 0 };
+  if (t.look === "term") return { w: t.w * 0.906 - 6, h: t.h * 0.86, ins: 3 };
+  return { w: t.w - 6, h: t.h - 2, ins: 3 };
 }
-function fitSize(n, base, fam) {
-  const tb = textBox(n);
+function fitSize(t, base, fam) {
+  const tb = textBox(t);
   for (let fs = base; fs >= 6; fs -= 0.5) {
-    const lines = wrap(n.text, tb.w, fs, fam);
+    const lines = wrap(t.label, tb.w, fs, fam);
     if (lines.length * fs * LH <= tb.h && lines.every(l => textWidth(l, fs, fam) <= tb.w + 0.5)) return fs;
   }
   return 6;
 }
+// 同じ種類の文字はできるだけ同じ大きさにそろえる
+function fitGroup(items, base, fam) {
+  if (!items.length) return;
+  const fits = items.map(t => fitSize(t, base, fam));
+  const uni = Math.max(Math.min(...fits), base * 0.7);
+  items.forEach((t, i) => {
+    t.fs = Math.min(uni, fits[i]);
+    t.wrapped = wrap(t.label, textBox(t).w, t.fs, fam);
+  });
+}
 
 // ---------- 配置（単位：pt） ----------
-const BAR = 0.45;   // 二重線の段の高さ（1 段に対する割合）
+// 高さは「1 段 = 1」の割合で決めてから、スライドに収まるように拡大する
+const A = { box: 0.55, gap: 0.45, dec: 0.8, bar: 0.45, hdr: 0.5, pad: 0.14, sub: 0.46, subGap: 0.26, note: 0.42, noteGap: 0.14 };
 const isShape = n => n.kind !== "bar";
 const topOf = n => n.y - n.h / 2;
 const bottomOf = n => n.y + n.h / 2;
+const hasSubs = n => !!(n.subs && n.subs.length);
+const CIRCLED = k => (k >= 1 && k <= 20 ? String.fromCharCode(0x2460 + k - 1) : `(${k})`);
+
 function layout(g, o) {
   const [W, H] = SIZES[o.size];
-  const L = { W, H, nodes: g.nodes, lines: [], title: null, fam: FONTS[o.font][1] };
+  const L = { W, H, nodes: g.nodes, lines: [], notes: [], dots: [], title: null, fam: FONTS[o.font][1] };
   if (o.title) L.title = { x: W * 0.04, y: H * 0.045, fs: Math.min(24, H * 0.045), text: o.title };
   if (!g.M) return L;
 
-  const aL = W * 0.04, aR = W - W * 0.04, aT = o.title ? H * 0.15 : H * 0.05, aB = H - H * 0.05;
-  const depth = u => Math.max(...u.lanes.map(l => l.length));
-  const span = u => (u.kind === "block" ? depth(u) + 2 * BAR : 1);
-  const total = g.units.reduce((s, u) => s + span(u), 0);
+  // 形と文字（番号）
+  let num = 0;
+  g.nodes.forEach((n, idx) => { n.idx = idx; });
+  for (const n of g.nodes) {
+    if (!isShape(n)) continue;
+    n.look = o.shape === "kind" ? n.kind : "proc";
+    n.label = n.text;
+  }
+  if (o.num) {
+    const steps = g.nodes.filter(n => isShape(n) && n.kind === "proc" && !n.side).sort((a, b) => a.line - b.line || a.idx - b.idx);
+    for (const n of steps) n.label = `${++num}.${n.text}`;
+  }
 
-  // 横の広がり（本線を 0 として、右の分岐は +1, +2…、同時進行の列は左右に広がる）
-  let minOff = 0, maxOff = 0;
+  // 縦の大きさ（割合）
+  const contH = n => A.hdr + A.pad * 2 + n.subs.length * A.sub + (n.subs.length - 1) * A.subGap + (n.stretch || 0);
+  const hOf = n => (hasSubs(n) ? contH(n) : n.look === "dec" ? A.dec : A.box);
+  const slotOf = n => (hasSubs(n) ? contH(n) + A.gap : 1);
+  const depth = u => Math.max(...u.lanes.map(l => l.length));
+  const extra = new Array(g.M).fill(0);
+  const slotTop = [];
+  const place = () => {
+    let y = 0;
+    g.units.forEach((u, i) => {
+      slotTop[i] = y;
+      if (u.kind === "block") {
+        const d = depth(u);
+        g.nodes[u.fork].ay = y + A.bar / 2;
+        u.laneNodes.forEach(l => l.forEach((ni, r) => { g.nodes[ni].ay = y + A.bar + r + 0.5; }));
+        g.nodes[u.join].ay = y + A.bar + d + A.bar / 2;
+        y += d + 2 * A.bar + extra[i];
+      } else {
+        const n = g.nodes[g.entry[i]];
+        n.ay = y + slotOf(n) / 2;
+        y += slotOf(n) + extra[i];
+      }
+    });
+    return y;
+  };
+  let total = place();
+
+  // 左の並行手順：合流まで届かなければ間を広げ、余るときは 1 つだけなら縦に伸ばす
+  for (const sl of g.sideLanes) {
+    const need = sl.ids.reduce((s, ni) => s + slotOf(g.nodes[ni]), 0);
+    const start = slotTop[sl.from];
+    if (sl.to < 0) continue;
+    const room = slotTop[sl.to] - start;
+    if (need > room) { extra[sl.to - 1] += need - room; total = place(); }
+    else if (sl.ids.length === 1 && hasSubs(g.nodes[sl.ids[0]])) g.nodes[sl.ids[0]].stretch = room - need;
+  }
+  for (const sl of g.sideLanes) {
+    let y = slotTop[sl.from];
+    for (const ni of sl.ids) { const n = g.nodes[ni]; n.ay = y + slotOf(n) / 2; y += slotOf(n); }
+    total = Math.max(total, y);
+  }
+
+  // 横の並び：左に並行手順・同時進行、真ん中が本線、右に「いいえ」の処理と照査・打合せ
+  const sideCol = [];
+  const used = [];
+  for (const sl of g.sideLanes) {
+    const end = sl.to < 0 ? g.M : sl.to;
+    let c = 1;
+    while ((used[c] || []).some(r => !(end <= r[0] || sl.from >= r[1]))) c++;
+    (used[c] = used[c] || []).push([sl.from, end]);
+    sideCol.push(c);
+  }
+  let minOff = -Math.max(0, ...sideCol), maxOff = 0;
   for (const n of g.nodes) if (n.side) maxOff = Math.max(maxOff, n.col);
   for (const u of g.units) if (u.kind === "block") { const h = (u.lanes.length - 1) / 2; minOff = Math.min(minOff, -h); maxOff = Math.max(maxOff, h); }
-  const cols = maxOff - minOff + 1;
-  const jumps = g.edges.filter(e => e.type === "jump").length;
-  const lane = jumps ? 14 + 12 * jumps : 0;
-  const cp = Math.min((aR - aL - lane) / cols, 250);
-  const rp = Math.min((aB - aT) / total, 90);
-  const boxW = cp * 0.7, boxH = rp * 0.55, decH = rp * 0.8;
-  const barGap = Math.max(2.5, rp * 0.06);
-  const left = aL + ((aR - aL) - (cols * cp + lane)) / 2;
-  const mainX = left + cp * (-minOff + 0.5);
-  const top = aT + ((aB - aT) - total * rp) / 2;
+  const hasNotes = g.units.some(u => u.notes && u.notes.length);
+  const noteCols = hasNotes ? 0.85 : 0;
 
-  // 「形をそろえる」ときは全部四角（判断・開始終了も同じ大きさ）
+  const aL = W * 0.04, aR = W - W * 0.04, aT = o.title ? H * 0.15 : H * 0.05, aB = H - H * 0.05;
+  const cols = maxOff - minOff + 1 + noteCols;
+  const jumps = g.edges.filter(e => e.type === "jump").length;
+  const laneSpace = jumps ? 14 + 12 * jumps : 0;
+  const cp = Math.min((aR - aL - laneSpace) / cols, 250);
+  const s = Math.min((aB - aT) / total, 90);
+  const boxW = cp * 0.7;
+  const left = aL + ((aR - aL) - (cols * cp + laneSpace)) / 2;
+  const mainX = left + cp * (-minOff + 0.5);
+  const top = aT + ((aB - aT) - total * s) / 2;
+  const Y = a => top + a * s;
+
   const size = n => {
-    n.look = o.shape === "kind" ? n.kind : "proc";
-    if (n.look === "dec") { n.w = boxW * 1.15; n.h = decH; }
-    else if (n.look === "term") { n.w = boxW * 0.8; n.h = boxH; }
-    else { n.w = boxW; n.h = boxH; }
+    if (hasSubs(n)) { n.w = boxW; n.h = contH(n) * s; }
+    else if (n.look === "dec") { n.w = boxW * 1.15; n.h = A.dec * s; }
+    else if (n.look === "term") { n.w = boxW * 0.8; n.h = A.box * s; }
+    else { n.w = boxW; n.h = A.box * s; }
   };
-  let y = top;
   g.units.forEach((u, i) => {
-    if (u.kind !== "block") {
-      const n = g.nodes[g.entry[i]];
-      size(n); n.x = mainX; n.y = y + rp / 2;
-      y += rp;
-      return;
-    }
+    if (u.kind !== "block") { const n = g.nodes[g.entry[i]]; size(n); n.x = mainX; n.y = Y(n.ay); return; }
     const k = u.lanes.length;
     const xs = u.lanes.map((l, j) => mainX + (j - (k - 1) / 2) * cp);
     const x1 = Math.min(...xs) - boxW * 0.35, x2 = Math.max(...xs) + boxW * 0.35;
-    const bar = { x: mainX, x1, x2, w: x2 - x1, h: barGap };
-    Object.assign(g.nodes[u.fork], bar, { y: y + rp * BAR / 2 });
-    u.laneNodes.forEach((l, j) => l.forEach((ni, r) => {
-      const n = g.nodes[ni];
-      size(n); n.x = xs[j]; n.y = y + rp * BAR + rp * (r + 0.5);
-    }));
-    Object.assign(g.nodes[u.join], bar, { y: y + rp * (BAR + depth(u)) + rp * BAR / 2 });
-    y += span(u) * rp;
+    for (const b of [u.fork, u.join]) Object.assign(g.nodes[b], { x: mainX, x1, x2, w: x2 - x1, h: Math.max(2.5, s * 0.06), y: Y(g.nodes[b].ay) });
+    u.laneNodes.forEach((l, j) => l.forEach(ni => { const n = g.nodes[ni]; size(n); n.x = xs[j]; n.y = Y(n.ay); }));
   });
+  g.sideLanes.forEach((sl, k) => sl.ids.forEach(ni => { const n = g.nodes[ni]; size(n); n.x = mainX - sideCol[k] * cp; n.y = Y(n.ay); }));
   for (const n of g.nodes) {
     if (!n.side) continue;
     size(n);
@@ -473,39 +615,106 @@ function layout(g, o) {
     n.y = g.nodes[g.entry[n.unit]].y;
   }
 
+  // 照査・打合せの箱（右の列）
+  const noteW = boxW * 0.62, noteH = A.note * s;
+  const noteX = mainX + (maxOff > 0 ? maxOff * cp : 0) + boxW / 2 + noteW * 0.7 + noteW / 2;
+  const counts = {};
+  const groups = [];
+  g.units.forEach((u, i) => {
+    if (!u.notes || !u.notes.length) return;
+    for (const grp of u.notes) {
+      const items = grp.items.map(t => {
+        const base = clean(t);
+        counts[base] = (counts[base] || 0) + 1;
+        const label = o.num && !/[①-⑳]$/.test(base) ? base + CIRCLED(counts[base]) : base;
+        const cat = /照査/.test(base) ? "check" : /打合|打ち合|協議|会議/.test(base) ? "meet" : "other";
+        return { kind: "note", text: base, label, cat, line: grp.line, look: "proc", w: noteW, h: noteH, unit: i, pos: grp.pos };
+      });
+      groups.push({ unit: i, pos: grp.pos, items, line: grp.line });
+    }
+  });
+
   // ドラッグで動かした分を足す（同じ文字の図形は出てくる順で区別）
   const seen = {};
   L.moved = 0;
-  for (const n of g.nodes) {
-    if (!isShape(n)) continue;
-    const base = `${n.text}|${n.lane ?? ""}|${n.side ? n.col : ""}`;
+  const applyOffset = n => {
+    const base = `${n.kind === "note" ? "@" : ""}${n.text}|${n.lane ?? ""}|${n.side ? n.col : ""}|${n.sideLane ? "<" : ""}`;
     seen[base] = (seen[base] || 0) + 1;
     n.key = `${base}|${seen[base]}`;
     const off = o.offsets[n.key];
     if (off) { n.x += off[0]; n.y += off[1]; L.moved++; }
+  };
+  g.nodes.filter(isShape).forEach(applyOffset);
+
+  // 小項目の位置（外枠の中に縦に並べる）
+  for (const n of g.nodes) {
+    if (!isShape(n) || !hasSubs(n)) continue;
+    const x0 = n.x - n.w / 2, t0 = topOf(n);
+    n.head = { x: n.x, y: t0 + (A.hdr * s) / 2, w: n.w, h: A.hdr * s, look: "proc", label: n.label };
+    const k = n.subs.length;
+    const gapS = (A.subGap + (n.stretch || 0) / Math.max(1, k - 1)) * s;
+    const firstTop = t0 + (A.hdr + A.pad) * s + (k === 1 ? (n.stretch || 0) * s / 2 : 0);
+    n.subBoxes = n.subs.map((sb, j) => ({
+      x: n.x, y: firstTop + j * (A.sub * s + gapS) + (A.sub * s) / 2, w: n.w - n.w * 0.08, h: A.sub * s,
+      look: "proc", label: o.num && k > 1 ? `(${j + 1})${sb.text}` : sb.text, line: sb.line, x0,
+    }));
   }
 
-  // 文字の大きさはできるだけそろえる
-  const shapes = g.nodes.filter(isShape);
-  const base = Math.max(7, Math.min(16, boxH * 0.4));
-  const fits = shapes.map(n => fitSize(n, base, L.fam));
-  const uni = Math.max(Math.min(...fits), base * 0.7);
-  shapes.forEach((n, i) => {
-    n.fs = Math.min(uni, fits[i]);
-    n.wrapped = wrap(n.text, textBox(n).w, n.fs, L.fam);
-  });
-  L.fs = uni;
+  // 照査・打合せの点（本線の矢印の上）と箱の高さ
+  const nodeOf = i => g.nodes[g.entry[i]];
+  for (const grp of groups) {
+    const n = nodeOf(grp.unit);
+    let dot;
+    if (hasSubs(n) && grp.pos === 0) dot = { x: n.x + n.w / 2, y: n.head.y, onEdge: true };
+    else if (hasSubs(n) && grp.pos < n.subs.length) {
+      const a = n.subBoxes[grp.pos - 1], b = n.subBoxes[grp.pos];
+      dot = { x: n.x, y: (bottomOf(a) + topOf(b)) / 2 };
+    } else {
+      const next = grp.unit + 1 < g.M ? nodeOf(grp.unit + 1) : null;
+      const b = g.nodes[g.exit[grp.unit]];
+      dot = next ? { x: b.x, y: (bottomOf(b) + topOf(next)) / 2 } : { x: b.x, y: bottomOf(b) + (A.gap / 2) * s };
+    }
+    grp.dot = dot;
+  }
+  groups.sort((a, b) => a.dot.y - b.dot.y);
+  let floor = -Infinity;
+  for (const grp of groups) {
+    const k = grp.items.length, tot = k * noteH + (k - 1) * A.noteGap * s;
+    let t = Math.max(grp.dot.y - tot / 2, floor + 3);
+    grp.items.forEach((it, j) => { it.x = noteX; it.y = t + j * (noteH + A.noteGap * s) + noteH / 2; });
+    floor = t + tot;
+    grp.items.forEach(applyOffset);
+    L.dots.push(grp.dot);
+    for (const it of grp.items) {
+      L.notes.push(it);
+      const S = [grp.dot.x, grp.dot.y], E = [it.x - it.w / 2, it.y];
+      const ln = Math.abs(S[1] - E[1]) < 0.5 ? { route: "straight" } : { route: "h3", mx: E[0] - noteW * 0.35 };
+      L.lines.push(Object.assign(ln, { S, E, type: "note", a: -1, b: it, dashed: true, arrow: false }));
+    }
+  }
 
-  // 矢印の通り道。route: straight=まっすぐ / v3=縦→横→縦 / h3=横→縦→横 / j4=右→縦→左→下（戻り）
-  const gapAbove = b => topOf(b) - rp * 0.09;
-  const shapesRight = Math.max(...g.nodes.map(n => (isShape(n) ? n.x + n.w / 2 : n.x2)));
+  // 文字の大きさ
+  const base = Math.max(7, Math.min(16, A.box * s * 0.4));
+  fitGroup(g.nodes.filter(n => isShape(n) && !hasSubs(n)).concat(g.nodes.filter(hasSubs).map(n => n.head)), base, L.fam);
+  fitGroup(g.nodes.filter(hasSubs).flatMap(n => n.subBoxes), base * 0.92, L.fam);
+  fitGroup(L.notes, base * 0.95, L.fam);
+  for (const n of g.nodes.filter(hasSubs)) { n.fs = n.head.fs; n.wrapped = n.head.wrapped; }
+
+  // 矢印の通り道。route: straight / v3=縦→横→縦 / h3=横→縦→横 / j4=右→縦→左→下 / h2=横→縦 / v2=縦→横
+  const gapAbove = b => topOf(b) - s * 0.09;
+  const shapesRight = Math.max(...g.nodes.map(n => (isShape(n) ? n.x + n.w / 2 : n.x2)), ...L.notes.map(n => n.x + n.w / 2));
   const laneX = shapesRight + 12;
   let laneNo = 0;
+  const pts = ln => ln.route === "straight" ? [ln.S, ln.E]
+    : ln.route === "v3" ? [ln.S, [ln.S[0], ln.my], [ln.E[0], ln.my], ln.E]
+    : ln.route === "h3" ? [ln.S, [ln.mx, ln.S[1]], [ln.mx, ln.E[1]], ln.E]
+    : ln.route === "h2" ? [ln.S, [ln.E[0], ln.S[1]], ln.E]
+    : ln.route === "v2" ? [ln.S, [ln.S[0], ln.E[1]], ln.E]
+    : [ln.S, [ln.lx, ln.S[1]], [ln.lx, ln.gy], [ln.E[0], ln.gy], ln.E];
   for (const e of g.edges) {
     const a = g.nodes[e.a], b = g.nodes[e.b];
     let S, E, ln;
     if (e.type === "down" || e.type === "merge") {
-      // 二重線からは各列の真上へ、二重線へは各列の真下から
       S = [a.kind === "bar" ? b.x : a.x, bottomOf(a)];
       E = [b.kind === "bar" ? a.x : b.x, topOf(b)];
       if (Math.abs(S[0] - E[0]) < 0.5) ln = { route: "straight" };
@@ -522,18 +731,49 @@ function layout(g, o) {
       E = [b.x, topOf(b)];
       ln = { route: "j4", lx: laneX + 12 * laneNo++, gy: gapAbove(b) };
     }
-    const pts = ln.route === "straight" ? [S, E]
-      : ln.route === "v3" ? [S, [S[0], ln.my], [E[0], ln.my], E]
-      : ln.route === "h3" ? [S, [ln.mx, S[1]], [ln.mx, E[1]], E]
-      : [S, [ln.lx, S[1]], [ln.lx, ln.gy], [E[0], ln.gy], E];
-    L.lines.push(Object.assign(ln, { S, E, pts, type: e.type, a: e.a, b: e.b }));
+    L.lines.push(Object.assign(ln, { S, E, type: e.type, a: e.a, b: e.b, arrow: true }));
   }
-
+  // 小項目どうしの矢印
+  for (const n of g.nodes.filter(hasSubs)) {
+    for (let j = 0; j < n.subBoxes.length - 1; j++) {
+      const a = n.subBoxes[j], b = n.subBoxes[j + 1];
+      L.lines.push({ route: "straight", S: [a.x, bottomOf(a)], E: [b.x, topOf(b)], type: "sub", owner: n, a: j, b: j + 1, arrow: true });
+    }
+  }
+  // 左の並行手順：本線の点から破線で分かれ、破線で本線の点に合流
+  g.sideLanes.forEach(sl => {
+    const first = g.nodes[sl.ids[0]], last = g.nodes[sl.ids[sl.ids.length - 1]];
+    const P = nodeOf(sl.from);
+    const d1 = { x: P.x, y: topOf(P) - (A.gap / 2) * s };
+    L.dots.push(d1);
+    L.lines.push({ route: "h2", S: [d1.x, d1.y], E: [first.x, topOf(first)], type: "branch", a: -1, b: first.idx, dashed: true, arrow: false });
+    if (sl.to >= 0 && !last.isEnd) {
+      const T = nodeOf(sl.to);
+      const d2 = { x: T.x, y: topOf(T) - (A.gap / 2) * s };
+      L.dots.push(d2);
+      L.lines.push({ route: "v2", S: [last.x, bottomOf(last)], E: [d2.x, d2.y], type: "rejoin", a: last.idx, b: -1, dashed: true, arrow: false });
+    }
+  });
+  for (const ln of L.lines) {
+    if ((ln.route === "h2" || ln.route === "v2") && (Math.abs(ln.S[0] - ln.E[0]) < 0.5 || Math.abs(ln.S[1] - ln.E[1]) < 0.5)) ln.route = "straight";
+    ln.pts = pts(ln);
+  }
+  L.dotR = Math.max(1.8, s * 0.07);
   return L;
 }
+
 // ---------- プレビュー（SVG） ----------
 const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const f1 = v => (Math.round(v * 10) / 10).toString();
+function svgText(t, color, align) {
+  const k = t.wrapped.length;
+  const x = align === "l" ? t.x - t.w / 2 + textBox(t).ins + 1 : t.x;
+  return t.wrapped.map((line, j) =>
+    `<text x="${f1(x)}" y="${f1(t.y + (j - (k - 1) / 2) * t.fs * LH)}" font-size="${t.fs}" fill="#${color}" text-anchor="${align === "l" ? "start" : "middle"}" dominant-baseline="central">${esc(line)}</text>`).join("");
+}
+function svgRect(t, fill, line, lineW, cls = "") {
+  return `<rect${cls ? ` class="${cls}"` : ""} x="${f1(t.x - t.w / 2)}" y="${f1(topOf(t))}" width="${f1(t.w)}" height="${f1(t.h)}" fill="#${fill}" stroke="#${line}" stroke-width="${lineW}"/>`;
+}
 function svgOf(L, st, forImage) {
   const c = v => "#" + v;
   const out = [];
@@ -545,27 +785,36 @@ function svgOf(L, st, forImage) {
     out.push(`<text class="empty" x="${L.W / 2}" y="${L.H / 2}" text-anchor="middle">左の「手順」に 1 行ずつ書くと、ここに図ができます</text>`);
   }
   for (const ln of L.lines) {
-    out.push(`<path d="M${ln.pts.map(p => f1(p[0]) + "," + f1(p[1])).join(" L")}" fill="none" stroke="${c(st.arrow)}" stroke-width="${st.lineW}" marker-end="url(#ah)"/>`);
+    if (ln.type === "sub") continue;
+    out.push(`<path d="M${ln.pts.map(p => f1(p[0]) + "," + f1(p[1])).join(" L")}" fill="none" stroke="${c(st.arrow)}" stroke-width="${ln.dashed ? Math.max(0.75, st.lineW * 0.75) : st.lineW}"${ln.dashed ? ' stroke-dasharray="4 3"' : ""}${ln.arrow ? ' marker-end="url(#ah)"' : ""}/>`);
   }
   L.nodes.forEach((n, i) => {
     if (n.kind === "bar") {
-      // 同時進行の分かれ目・合流（二重線）
       out.push(`<path d="M${f1(n.x1)},${f1(topOf(n))} H${f1(n.x2)} M${f1(n.x1)},${f1(bottomOf(n))} H${f1(n.x2)}" stroke="${c(st.arrow)}" stroke-width="${st.lineW}" fill="none"/>`);
       return;
     }
-    const [fill, line] = st[n.look];
-    const x = n.x - n.w / 2, y = n.y - n.h / 2;
-    let shape;
-    if (n.look === "dec") shape = `<path class="shape" d="M${f1(n.x)},${f1(y)} L${f1(x + n.w)},${f1(n.y)} L${f1(n.x)},${f1(y + n.h)} L${f1(x)},${f1(n.y)} Z"`;
-    else shape = `<rect class="shape" x="${f1(x)}" y="${f1(y)}" width="${f1(n.w)}" height="${f1(n.h)}"${n.look === "term" ? ` rx="${f1(n.h / 2)}"` : ""}`;
-    out.push(`<g class="node" data-i="${i}" data-line="${n.line}">${shape} fill="${c(fill)}" stroke="${c(line)}" stroke-width="${st.lineW}"/>`);
-    const k = n.wrapped.length;
-    n.wrapped.forEach((t, j) => {
-      const ty = n.y + (j - (k - 1) / 2) * n.fs * LH;
-      out.push(`<text x="${f1(n.x)}" y="${f1(ty)}" font-size="${n.fs}" fill="${c(st.text)}" text-anchor="middle" dominant-baseline="central">${esc(t)}</text>`);
-    });
+    out.push(`<g class="node" data-i="${i}" data-line="${n.line}">`);
+    if (hasSubs(n)) {
+      out.push(svgRect(n, st.body, st.proc[1], st.lineW, "shape"));
+      out.push(svgRect(n.head, st.head, st.proc[1], st.lineW));
+      out.push(svgText(n.head, st.text, "c"));
+      for (const ln of L.lines) if (ln.type === "sub" && ln.owner === n) {
+        out.push(`<path d="M${f1(ln.S[0])},${f1(ln.S[1])} L${f1(ln.E[0])},${f1(ln.E[1])}" stroke="${c(st.arrow)}" stroke-width="${st.lineW}" marker-end="url(#ah)"/>`);
+      }
+      for (const b of n.subBoxes) { out.push(svgRect(b, st.sub[0], st.sub[1], st.lineW)); out.push(svgText(b, st.text, "l")); }
+    } else {
+      const [fill, line] = st[n.look];
+      const x = n.x - n.w / 2, y = topOf(n);
+      if (n.look === "dec") out.push(`<path class="shape" d="M${f1(n.x)},${f1(y)} L${f1(x + n.w)},${f1(n.y)} L${f1(n.x)},${f1(y + n.h)} L${f1(x)},${f1(n.y)} Z" fill="${c(fill)}" stroke="${c(line)}" stroke-width="${st.lineW}"/>`);
+      else out.push(`<rect class="shape" x="${f1(x)}" y="${f1(y)}" width="${f1(n.w)}" height="${f1(n.h)}"${n.look === "term" ? ` rx="${f1(n.h / 2)}"` : ""} fill="${c(fill)}" stroke="${c(line)}" stroke-width="${st.lineW}"/>`);
+      out.push(svgText(n, st.text, "c"));
+    }
     out.push(`</g>`);
   });
+  L.notes.forEach((n, j) => {
+    out.push(`<g class="node" data-note="${j}" data-line="${n.line}">${svgRect(n, st.notes[n.cat], st.proc[1], st.lineW, "shape")}${svgText(n, st.text, "c")}</g>`);
+  });
+  for (const d of L.dots) out.push(`<circle cx="${f1(d.x)}" cy="${f1(d.y)}" r="${f1(L.dotR)}" fill="${c(st.arrow)}"/>`);
   out.push(`</svg>`);
   return out.join("");
 }
@@ -577,87 +826,108 @@ function runXml(text, fs, color, font) {
 }
 function slideXml(L, st, font) {
   let id = 2;
-  const kids = [], ids = [];
+  const out = [];
   const xfrm = (x, y, w, h, attrs = "") =>
     `<a:xfrm${attrs}><a:off x="${EMU(x)}" y="${EMU(y)}"/><a:ext cx="${Math.max(0, EMU(w))}" cy="${Math.max(0, EMU(h))}"/></a:xfrm>`;
-  const lnXml = (color, w, arrow) =>
-    `<a:ln w="${EMU(w)}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>${arrow ? '<a:tailEnd type="triangle" w="med" len="med"/>' : ""}</a:ln>`;
+  const lnXml = (color, w, arrow, dashed) =>
+    `<a:ln w="${EMU(w)}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>${dashed ? '<a:prstDash val="dash"/>' : ""}${arrow ? '<a:tailEnd type="triangle" w="med" len="med"/>' : ""}</a:ln>`;
   const flips = (h, v, rot) => `${rot ? ` rot="${rot}"` : ""}${h ? ' flipH="1"' : ""}${v ? ' flipV="1"' : ""}`;
   const geom = { proc: "flowChartProcess", dec: "flowChartDecision", term: "flowChartTerminator" };
   const kindName = { proc: "処理", dec: "判断", term: "端子" };
 
-  // 同時進行の二重線
-  const barXml = n => {
-    const W = n.x2 - n.x1;
-    return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${n.join ? "合流" : "同時進行"} ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(n.x1, topOf(n), W, n.h)}` +
-      `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="${Math.max(1, EMU(W))}" h="${Math.max(1, EMU(n.h))}" fill="none">` +
-      `<a:moveTo><a:pt x="0" y="0"/></a:moveTo><a:lnTo><a:pt x="${EMU(W)}" y="0"/></a:lnTo><a:moveTo><a:pt x="0" y="${EMU(n.h)}"/></a:moveTo><a:lnTo><a:pt x="${EMU(W)}" y="${EMU(n.h)}"/></a:lnTo>` +
-      `</a:path></a:pathLst></a:custGeom><a:noFill/>${lnXml(st.arrow, st.lineW, false)}</p:spPr></p:sp>`;
+  // 文字の入った図形（t は x, y, w, h, look, label, fs）
+  const shapeXml = (t, name, prst, fill, line, align = "ctr") => {
+    const ins = EMU(textBox(t).ins);
+    const body = t.label === undefined ? "" :
+      `<p:txBody><a:bodyPr wrap="square" lIns="${ins}" tIns="0" rIns="${ins}" bIns="0" rtlCol="0" anchor="ctr"><a:noAutofit/></a:bodyPr><a:lstStyle/>` +
+      `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPts val="${Math.round(t.fs * LH * 100)}"/></a:lnSpc></a:pPr>${runXml(t.label, t.fs, st.text, font)}</a:p></p:txBody>`;
+    return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${name} ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>` +
+      `<p:spPr>${xfrm(t.x - t.w / 2, topOf(t), t.w, t.h)}<a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom>` +
+      `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>${lnXml(line, st.lineW, false, false)}</p:spPr>${body}</p:sp>`;
   };
 
-  L.nodes.forEach((n, i) => {
-    ids[i] = id;
-    if (n.kind === "bar") { kids.push(barXml(n)); id++; return; }
-    const [fill, line] = st[n.look];
-    const ins = EMU(textBox(n).ins);
-    kids.push(`<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${kindName[n.kind]} ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>` +
-      `<p:spPr>${xfrm(n.x - n.w / 2, n.y - n.h / 2, n.w, n.h)}<a:prstGeom prst="${geom[n.look]}"><a:avLst/></a:prstGeom>` +
-      `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>${lnXml(line, st.lineW, false)}</p:spPr>` +
-      `<p:txBody><a:bodyPr wrap="square" lIns="${ins}" tIns="0" rIns="${ins}" bIns="0" rtlCol="0" anchor="ctr"><a:noAutofit/></a:bodyPr><a:lstStyle/>` +
-      `<a:p><a:pPr algn="ctr"><a:lnSpc><a:spcPts val="${Math.round(n.fs * LH * 100)}"/></a:lnSpc></a:pPr>${runXml(n.text, n.fs, st.text, font)}</a:p></p:txBody></p:sp>`);
-    id++;
-  });
-
-  // 矢印はすべて図形にくっつくコネクタ（接続点 0=上 1=左 2=下 3=右）。二重線の側だけはくっつけない
-  const SITES = { down: [2, 0], merge: [2, 0], right: [3, 1], jump: [3, 0] };
+  // 矢印はすべて図形にくっつくコネクタ（接続点 0=上 1=左 2=下 3=右）
   const adj = (name, v) => `<a:gd name="${name}" fmla="val ${Math.round(v * 100000)}"/>`;
-  for (const ln of L.lines) {
+  const connXml = (ln, start, end) => {
     const [sx, sy] = ln.S, [ex, ey] = ln.E;
     const W = Math.max(Math.abs(ex - sx), 0.01), H = Math.max(Math.abs(ey - sy), 0.01);
     const x0 = Math.min(sx, ex), y0 = Math.min(sy, ey);
+    const down = ey > sy, leftward = ex < sx;
+    const cx = (sx + ex) / 2, cy = (sy + ey) / 2;
     let prst, xf, av = "";
-    if (ln.route === "straight") {
-      prst = "straightConnector1";
-      xf = xfrm(x0, y0, Math.abs(ex - sx), Math.abs(ey - sy), flips(ex < sx, ey < sy));
-    } else if (ln.route === "h3") {
-      prst = "bentConnector3";
-      xf = xfrm(x0, y0, W, H, flips(ex < sx, ey < sy));
-      av = adj("adj1", Math.abs(ln.mx - sx) / W);
-    } else if (ln.route === "j4") {
-      const fh = ex < sx, fv = ey < sy;
-      prst = "bentConnector4";
-      xf = xfrm(x0, y0, W, H, flips(fh, fv));
-      av = adj("adj1", (fh ? sx - ln.lx : ln.lx - sx) / W) + adj("adj2", (fv ? sy - ln.gy : ln.gy - sy) / H);
+    if (ln.route === "straight") { prst = "straightConnector1"; xf = xfrm(x0, y0, Math.abs(ex - sx), Math.abs(ey - sy), flips(leftward, !down && ey !== sy)); }
+    else if (ln.route === "h3") { prst = "bentConnector3"; xf = xfrm(x0, y0, W, H, flips(leftward, !down)); av = adj("adj1", Math.abs(ln.mx - sx) / W); }
+    else if (ln.route === "h2") { prst = "bentConnector2"; xf = xfrm(x0, y0, W, H, flips(leftward, !down)); }
+    else if (ln.route === "j4") {
+      prst = "bentConnector4"; xf = xfrm(x0, y0, W, H, flips(leftward, !down));
+      av = adj("adj1", (leftward ? sx - ln.lx : ln.lx - sx) / W) + adj("adj2", (!down ? sy - ln.gy : ln.gy - sy) / H);
     } else {
-      // 縦→横→縦は、横→縦→横の形を 90° 回して作る
-      const down = ey > sy, leftward = ex < sx;
-      const cx = (sx + ex) / 2, cy = (sy + ey) / 2;
-      prst = "bentConnector3";
+      // 縦から始まる形は、横から始まる形を 90° 回して作る
+      prst = ln.route === "v2" ? "bentConnector2" : "bentConnector3";
       xf = xfrm(cx - H / 2, cy - W / 2, H, W, flips(!down, !leftward, 5400000));
-      av = adj("adj1", Math.abs(ln.my - sy) / H);
+      if (ln.route === "v3") av = adj("adj1", Math.abs(ln.my - sy) / H);
     }
-    const [sa, sb] = SITES[ln.type];
-    const glueA = L.nodes[ln.a].kind !== "bar", glueB = L.nodes[ln.b].kind !== "bar";
-    kids.push(`<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${id}" name="矢印 ${id}"/><p:cNvCxnSpPr>` +
-      `${glueA ? `<a:stCxn id="${ids[ln.a]}" idx="${sa}"/>` : ""}${glueB ? `<a:endCxn id="${ids[ln.b]}" idx="${sb}"/>` : ""}</p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr>` +
+    return `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${id}" name="矢印 ${id++}"/><p:cNvCxnSpPr>` +
+      `${start ? `<a:stCxn id="${start[0]}" idx="${start[1]}"/>` : ""}${end ? `<a:endCxn id="${end[0]}" idx="${end[1]}"/>` : ""}</p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr>` +
       `<p:spPr>${xf}<a:prstGeom prst="${prst}"><a:avLst>${av}</a:avLst></a:prstGeom>` +
-      `<a:noFill/>${lnXml(st.arrow, st.lineW, true)}</p:spPr></p:cxnSp>`);
-    id++;
-  }
+      `<a:noFill/>${lnXml(st.arrow, ln.dashed ? Math.max(0.75, st.lineW * 0.75) : st.lineW, ln.arrow, ln.dashed)}</p:spPr></p:cxnSp>`;
+  };
 
+  const ids = [];
+  L.nodes.forEach((n, i) => {
+    if (n.kind === "bar") {
+      const W = n.x2 - n.x1;
+      out.push(`<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${n.join ? "合流" : "同時進行"} ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(n.x1, topOf(n), W, n.h)}` +
+        `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="${Math.max(1, EMU(W))}" h="${Math.max(1, EMU(n.h))}" fill="none">` +
+        `<a:moveTo><a:pt x="0" y="0"/></a:moveTo><a:lnTo><a:pt x="${EMU(W)}" y="0"/></a:lnTo><a:moveTo><a:pt x="0" y="${EMU(n.h)}"/></a:moveTo><a:lnTo><a:pt x="${EMU(W)}" y="${EMU(n.h)}"/></a:lnTo>` +
+        `</a:path></a:pathLst></a:custGeom><a:noFill/>${lnXml(st.arrow, st.lineW, false, false)}</p:spPr></p:sp>`);
+      return;
+    }
+    if (!hasSubs(n)) {
+      ids[i] = id;
+      const [fill, line] = st[n.look];
+      out.push(shapeXml(n, kindName[n.kind], geom[n.look], fill, line));
+      return;
+    }
+    // 小項目つき：外枠・見出し・小項目・中の矢印を 1 つのグループにする（まとめて動く）
+    const gid = id++;
+    ids[i] = id;
+    const parts = [shapeXml(Object.assign({}, n, { label: undefined }), "外枠", "rect", st.body, st.proc[1])];
+    parts.push(shapeXml(n.head, "見出し", "rect", st.head, st.proc[1]));
+    const subIds = n.subBoxes.map(b => { const sid = id; parts.push(shapeXml(b, "小項目", "rect", st.sub[0], st.sub[1], "l")); return sid; });
+    for (const ln of L.lines) if (ln.type === "sub" && ln.owner === n) parts.push(connXml(ln, [subIds[ln.a], 2], [subIds[ln.b], 0]));
+    const off = `<a:off x="${EMU(n.x - n.w / 2)}" y="${EMU(topOf(n))}"/><a:ext cx="${EMU(n.w)}" cy="${EMU(n.h)}"/>`;
+    out.push(`<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${gid}" name="${esc(n.label)}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+      `<p:grpSpPr><a:xfrm>${off}${off.replace("a:off", "a:chOff").replace("a:ext", "a:chExt")}</a:xfrm></p:grpSpPr>${parts.join("")}</p:grpSp>`);
+  });
+  const noteIds = L.notes.map(n => { const nid = id; out.push(shapeXml(n, "照査・打合せ", "rect", st.notes[n.cat], st.proc[1])); return nid; });
+
+  const SITES = { down: [2, 0], merge: [2, 0], right: [3, 1], jump: [3, 0] };
+  for (const ln of L.lines) {
+    if (ln.type === "sub") continue;
+    if (ln.type === "note") { out.push(connXml(ln, null, [noteIds[L.notes.indexOf(ln.b)], 1])); continue; }
+    if (ln.type === "branch") { out.push(connXml(ln, null, [ids[ln.b], 0])); continue; }
+    if (ln.type === "rejoin") { out.push(connXml(ln, [ids[ln.a], 2], null)); continue; }
+    const [sa, sb] = SITES[ln.type];
+    out.push(connXml(ln, L.nodes[ln.a].kind !== "bar" ? [ids[ln.a], sa] : null, L.nodes[ln.b].kind !== "bar" ? [ids[ln.b], sb] : null));
+  }
+  for (const d of L.dots) {
+    const r = L.dotR;
+    out.push(`<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="点 ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(d.x - r, d.y - r, r * 2, r * 2)}` +
+      `<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${st.arrow}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr></p:sp>`);
+  }
   if (L.title) {
     const t = L.title;
-    kids.push(`<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="タイトル ${id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(t.x, t.y, L.W - t.x * 2, t.fs * 1.6)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>` +
+    out.push(`<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="タイトル ${id++}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(t.x, t.y, L.W - t.x * 2, t.fs * 1.6)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>` +
       `<p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0" anchor="t"><a:noAutofit/></a:bodyPr><a:lstStyle/>` +
       `<a:p><a:pPr algn="l"/>${runXml(t.text, t.fs, st.text, font).replace("<a:rPr ", '<a:rPr b="1" ')}</a:p></p:txBody></p:sp>`);
   }
 
-  // まとめ（グループ）にはせず、1 つずつ自由に動かせるようにする
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">` +
     `<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
     `<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>` +
-    `${kids.join("")}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+    `${out.join("")}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
 }
 
 function pptxParts(L, st, font) {
@@ -709,30 +979,30 @@ function zipBytes(files) {
 // ---------- 画面 ----------
 const $ = id => document.getElementById(id);
 const ta = $("src"), gutter = $("gutter"), paper = $("paper"), msgsEl = $("msgs");
-const optIds = ["optSize", "optStyle", "optFont", "optShape", "optTitle"];
+const optIds = ["optSize", "optStyle", "optFont", "optShape", "optNum", "optTitle"];
 let state = null;
 let offsets = {};   // ドラッグで動かした量（図形ごと、pt）
 
 function options() {
   return {
     size: $("optSize").value, style: $("optStyle").value, font: $("optFont").value,
-    shape: $("optShape").value || "same", title: clean($("optTitle").value), offsets,
+    shape: $("optShape").value || "same", num: $("optNum").value !== "none", title: clean($("optTitle").value), offsets,
   };
 }
 
 function update() {
   const o = options();
-  const { units, lineInfo } = parse(ta.value);
-  const g = buildGraph(units);
+  const { units, sides, lineInfo } = parse(ta.value, o.num);
+  const g = buildGraph(units, sides);
   const L = layout(g, o);
   const st = STYLES[o.style];
   state = { L, st, o, g };
 
   const errLines = new Set(g.msgs.filter(m => m.level === "warn").map(m => m.line));
   gutter.innerHTML = lineInfo.map((li, i) => {
-    const kind = li.type === "step" || (li.type === "lane" && li.n) ? "step" : li.type === "lane" ? "lane" : "";
+    const kind = li.type === "step" || (li.type === "lane" && li.n) ? "step" : ["lane", "sub", "memo", "side"].includes(li.type) ? "lane" : "";
     const cls = [kind, errLines.has(i) ? "err" : ""].join(" ").trim();
-    const label = li.n ? li.n : li.type === "lane" ? "∥" : li.type === "note" ? "※" : "";
+    const label = li.n ? li.n : { lane: "∥", note: "※", sub: "・", memo: "@", side: "＜" }[li.type] || "";
     return `<div${cls ? ` class="${cls}"` : ""}>${label}</div>`;
   }).join("");
   gutter.scrollTop = ta.scrollTop;
@@ -746,7 +1016,7 @@ function update() {
 
   const jumps = g.edges.filter(e => e.type === "jump" || e.type === "merge").length;
   const decs = units.filter(u => u.kind === "dec").length;
-  const pars = units.filter(u => u.kind === "block").length;
+  const pars = units.filter(u => u.kind === "block").length + sides.length;
   $("stats").innerHTML = g.M
     ? `手順 <span class="n">${g.M}</span>　判断 <span class="n">${decs}</span>　同時進行 <span class="n">${pars}</span>　合流・戻り <span class="n">${jumps}</span>`
     : "手順はまだありません";
@@ -771,12 +1041,14 @@ function save() {
 function load() {
   let o = null;
   try { o = JSON.parse(localStorage.getItem("fc-tool-v1") || "null"); } catch (e) { o = null; }
-  ta.value = o && typeof o.src === "string" ? o.src : SAMPLES.gyomu;
+  ta.value = o && typeof o.src === "string" ? o.src : SAMPLES.word;
   if (o) optIds.forEach(id => { if (typeof o[id] === "string") $(id).value = o[id]; });
   if (o && o.offsets && typeof o.offsets === "object") offsets = o.offsets;
   if (!$("optShape").value) $("optShape").value = "same";
+  if (!o) { $("optSize").value = "a4p"; $("optStyle").value = "gyomu"; }
   if (!$("optSize").value) $("optSize").value = "w169";
-  if (!$("optStyle").value) $("optStyle").value = "color";
+  if (!$("optStyle").value) $("optStyle").value = "gyomu";
+  if (!$("optNum").value) $("optNum").value = "auto";
   if (!$("optFont").value) $("optFont").value = "meiryoui";
 }
 
@@ -889,6 +1161,9 @@ const INSERTS = {
   no: () => appendLine(" > いいえの処理", 3, 6),
   back: () => appendLine(" > #1", 4, 1),
   stay: () => appendLine(" > 戻らない", 3, 4),
+  sub: () => insertLine("・小項目", 1, 3),
+  memo: () => insertLine("@照査、打合せ", 1, 6),
+  side: () => insertLine("< 並行する作業 > #1", 2, 6),
   par: () => insertLine("| 作業A → 作業B\n| 作業C", 2, 3),
   end: () => insertLine("終了", 0, 2),
 };
@@ -902,6 +1177,7 @@ $("sample").addEventListener("change", e => {
   const prevOffsets = offsets;
   ta.value = SAMPLES[k];
   offsets = {};
+  if (k === "word") { $("optSize").value = "a4p"; $("optStyle").value = "gyomu"; $("optNum").value = "auto"; }
   update();
   toast("サンプルを入れました。", "元に戻す", () => { ta.value = prev; offsets = prevOffsets; update(); });
 });
@@ -933,7 +1209,7 @@ function svgPoint(e) {
 paper.addEventListener("pointerdown", e => {
   const el = e.target.closest(".node");
   if (!el || e.button > 0) return;
-  const n = state.L.nodes[+el.dataset.i];
+  const n = el.dataset.note !== undefined ? state.L.notes[+el.dataset.note] : state.L.nodes[+el.dataset.i];
   drag = { key: n.key, line: +el.dataset.line, start: svgPoint(e), base: (offsets[n.key] || [0, 0]).slice(), moved: false };
   e.preventDefault();
 });
