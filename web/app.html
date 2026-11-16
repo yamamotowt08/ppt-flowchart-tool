@@ -104,6 +104,8 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
 .paper { background: var(--paper); box-shadow: 0 1px 2px var(--shadow), 0 8px 24px var(--shadow); width: 100%; max-width: 100%; }
 .paper svg { display: block; width: 100%; height: auto; }
 .paper .node { cursor: grab; touch-action: none; }
+.paper .dot { cursor: move; touch-action: none; }
+.paper .dot:hover circle:last-child { r: 4.5; }
 .paper.dragging .node { cursor: grabbing; }
 .linkbtn { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font-size: 13px; }
 .paper .node:hover .shape { stroke-width: 2.6; }
@@ -229,7 +231,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       <div class="board"><div class="paper" id="paper"></div></div>
       <div class="stats">
         <span id="stats"></span>
-        <span>図形はドラッグで動かせます。クリックするとその行に移ります　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button></span>
+        <span>図形や黒い点はドラッグで動かせます（点は矢印や箱のふちに吸い付きます）。クリックするとその行に移ります　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button></span>
       </div>
     </section>
   </main>
@@ -645,6 +647,16 @@ function layout(g, o) {
     if (off) { n.x += off[0]; n.y += off[1]; L.moved++; }
   };
   g.nodes.filter(isShape).forEach(applyOffset);
+  // 点（照査・打合せや並行作業が本線につく所）も動かせる。動かした分は点の位置そのもの
+  const placeDot = (d, name) => {
+    d.x0 = d.x; d.y0 = d.y;
+    const base = `●${name}`;
+    seen[base] = (seen[base] || 0) + 1;
+    d.key = `${base}|${seen[base]}`;
+    const off = o.offsets[d.key];
+    if (off) { d.x += off[0]; d.y += off[1]; L.moved++; }
+    return d;
+  };
 
   // 小項目の位置（外枠の中に縦に並べる）
   for (const n of g.nodes) {
@@ -681,15 +693,18 @@ function layout(g, o) {
   for (const grp of groups) {
     const k = grp.items.length, tot = k * noteH + (k - 1) * A.noteGap * s;
     let t = Math.max(grp.dot.y - tot / 2, floor + 3);
-    grp.items.forEach((it, j) => { it.x = noteX; it.y = t + j * (noteH + A.noteGap * s) + noteH / 2; });
     floor = t + tot;
+    // 点を動かすと、箱も一緒についていく（箱だけ動かすこともできる）
+    placeDot(grp.dot, grp.items.map(it => it.text).join("・"));
+    const ddx = grp.dot.x - grp.dot.x0, ddy = grp.dot.y - grp.dot.y0;
+    grp.items.forEach((it, j) => { it.x = noteX + ddx; it.y = t + j * (noteH + A.noteGap * s) + noteH / 2 + ddy; });
     grp.items.forEach(applyOffset);
     L.dots.push(grp.dot);
     for (const it of grp.items) {
       L.notes.push(it);
       const S = [grp.dot.x, grp.dot.y], E = [it.x - it.w / 2, it.y];
       const ln = Math.abs(S[1] - E[1]) < 0.5 ? { route: "straight" } : { route: "h3", mx: E[0] - noteW * 0.35 };
-      L.lines.push(Object.assign(ln, { S, E, type: "note", a: -1, b: it, dashed: true, arrow: false }));
+      L.lines.push(Object.assign(ln, { S, E, type: "note", a: -1, b: it, dot: grp.dot, dashed: true, arrow: false }));
     }
   }
 
@@ -744,14 +759,14 @@ function layout(g, o) {
   g.sideLanes.forEach(sl => {
     const first = g.nodes[sl.ids[0]], last = g.nodes[sl.ids[sl.ids.length - 1]];
     const P = nodeOf(sl.from);
-    const d1 = { x: P.x, y: topOf(P) - (A.gap / 2) * s };
+    const d1 = placeDot({ x: P.x, y: topOf(P) - (A.gap / 2) * s }, `<${first.text}`);
     L.dots.push(d1);
-    L.lines.push({ route: "h2", S: [d1.x, d1.y], E: [first.x, topOf(first)], type: "branch", a: -1, b: first.idx, dashed: true, arrow: false });
+    L.lines.push({ route: "h2", S: [d1.x, d1.y], E: [first.x, topOf(first)], type: "branch", a: -1, b: first.idx, dot: d1, dashed: true, arrow: false });
     if (sl.to >= 0 && !last.isEnd) {
       const T = nodeOf(sl.to);
-      const d2 = { x: T.x, y: topOf(T) - (A.gap / 2) * s };
+      const d2 = placeDot({ x: T.x, y: topOf(T) - (A.gap / 2) * s }, `>${last.text}`);
       L.dots.push(d2);
-      L.lines.push({ route: "v2", S: [last.x, bottomOf(last)], E: [d2.x, d2.y], type: "rejoin", a: last.idx, b: -1, dashed: true, arrow: false });
+      L.lines.push({ route: "v2", S: [last.x, bottomOf(last)], E: [d2.x, d2.y], type: "rejoin", a: last.idx, b: -1, dot: d2, dashed: true, arrow: false });
     }
   });
   for (const ln of L.lines) {
@@ -759,6 +774,15 @@ function layout(g, o) {
     ln.pts = pts(ln);
   }
   L.dotR = Math.max(1.8, s * 0.07);
+  // 点を吸い付かせる先：実線の矢印と、図形のふち
+  L.snap = [];
+  for (const ln of L.lines) if (!ln.dashed) for (let k = 0; k < ln.pts.length - 1; k++) L.snap.push([ln.pts[k], ln.pts[k + 1]]);
+  const edges = t => { const x1 = t.x - t.w / 2, x2 = t.x + t.w / 2, y1 = topOf(t), y2 = bottomOf(t); return [[[x1, y1], [x2, y1]], [[x2, y1], [x2, y2]], [[x2, y2], [x1, y2]], [[x1, y2], [x1, y1]]]; };
+  for (const n of g.nodes) {
+    if (!isShape(n)) continue;
+    L.snap.push(...edges(n));
+    if (hasSubs(n)) { L.snap.push(...edges(n.head)); n.subBoxes.forEach(b => L.snap.push(...edges(b))); }
+  }
   return L;
 }
 
@@ -814,7 +838,7 @@ function svgOf(L, st, forImage) {
   L.notes.forEach((n, j) => {
     out.push(`<g class="node" data-note="${j}" data-line="${n.line}">${svgRect(n, st.notes[n.cat], st.proc[1], st.lineW, "shape")}${svgText(n, st.text, "c")}</g>`);
   });
-  for (const d of L.dots) out.push(`<circle cx="${f1(d.x)}" cy="${f1(d.y)}" r="${f1(L.dotR)}" fill="${c(st.arrow)}"/>`);
+  L.dots.forEach((d, i) => out.push(`<g class="dot" data-dot="${i}"><circle cx="${f1(d.x)}" cy="${f1(d.y)}" r="${f1(Math.max(7, L.dotR * 2.5))}" fill="#000000" fill-opacity="0"/><circle cx="${f1(d.x)}" cy="${f1(d.y)}" r="${f1(L.dotR)}" fill="${c(st.arrow)}"/></g>`));
   out.push(`</svg>`);
   return out.join("");
 }
@@ -901,20 +925,23 @@ function slideXml(L, st, font) {
       `<p:grpSpPr><a:xfrm>${off}${off.replace("a:off", "a:chOff").replace("a:ext", "a:chExt")}</a:xfrm></p:grpSpPr>${parts.join("")}</p:grpSp>`);
   });
   const noteIds = L.notes.map(n => { const nid = id; out.push(shapeXml(n, "照査・打合せ", "rect", st.notes[n.cat], st.proc[1])); return nid; });
+  // 点（線がくっつくので、点を動かすと破線もついてくる）
+  const dotIds = L.dots.map(d => {
+    const r = L.dotR, did = id;
+    out.push(`<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="点 ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(d.x - r, d.y - r, r * 2, r * 2)}` +
+      `<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${st.arrow}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr></p:sp>`);
+    return did;
+  });
+  const dotOf = ln => [dotIds[L.dots.indexOf(ln.dot)], 0];
 
   const SITES = { down: [2, 0], merge: [2, 0], right: [3, 1], jump: [3, 0] };
   for (const ln of L.lines) {
     if (ln.type === "sub") continue;
-    if (ln.type === "note") { out.push(connXml(ln, null, [noteIds[L.notes.indexOf(ln.b)], 1])); continue; }
-    if (ln.type === "branch") { out.push(connXml(ln, null, [ids[ln.b], 0])); continue; }
-    if (ln.type === "rejoin") { out.push(connXml(ln, [ids[ln.a], 2], null)); continue; }
+    if (ln.type === "note") { out.push(connXml(ln, dotOf(ln), [noteIds[L.notes.indexOf(ln.b)], 1])); continue; }
+    if (ln.type === "branch") { out.push(connXml(ln, dotOf(ln), [ids[ln.b], 0])); continue; }
+    if (ln.type === "rejoin") { out.push(connXml(ln, [ids[ln.a], 2], dotOf(ln))); continue; }
     const [sa, sb] = SITES[ln.type];
     out.push(connXml(ln, L.nodes[ln.a].kind !== "bar" ? [ids[ln.a], sa] : null, L.nodes[ln.b].kind !== "bar" ? [ids[ln.b], sb] : null));
-  }
-  for (const d of L.dots) {
-    const r = L.dotR;
-    out.push(`<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="点 ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(d.x - r, d.y - r, r * 2, r * 2)}` +
-      `<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${st.arrow}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr></p:sp>`);
   }
   if (L.title) {
     const t = L.title;
@@ -1206,11 +1233,24 @@ function svgPoint(e) {
   pt.x = e.clientX; pt.y = e.clientY;
   return pt.matrixTransform(svg.getScreenCTM().inverse());
 }
+// 一番近い矢印・図形のふちの上の点
+function snapPoint(p, segs) {
+  let best = null, bd = Infinity;
+  for (const [a, b] of segs) {
+    const dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy || 1e-9;
+    const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2));
+    const q = [a[0] + t * dx, a[1] + t * dy], d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (d < bd) { bd = d; best = q; }
+  }
+  return best && bd < 10 ? best : p;
+}
 paper.addEventListener("pointerdown", e => {
-  const el = e.target.closest(".node");
+  const dotEl = e.target.closest(".dot");
+  const el = dotEl || e.target.closest(".node");
   if (!el || e.button > 0) return;
-  const n = el.dataset.note !== undefined ? state.L.notes[+el.dataset.note] : state.L.nodes[+el.dataset.i];
-  drag = { key: n.key, line: +el.dataset.line, start: svgPoint(e), base: (offsets[n.key] || [0, 0]).slice(), moved: false };
+  const n = dotEl ? state.L.dots[+dotEl.dataset.dot]
+    : el.dataset.note !== undefined ? state.L.notes[+el.dataset.note] : state.L.nodes[+el.dataset.i];
+  drag = { key: n.key, line: dotEl ? -1 : +el.dataset.line, start: svgPoint(e), base: (offsets[n.key] || [0, 0]).slice(), moved: false, dot: dotEl ? n : null };
   e.preventDefault();
 });
 window.addEventListener("pointermove", e => {
@@ -1219,7 +1259,13 @@ window.addEventListener("pointermove", e => {
   if (!drag.moved && Math.hypot(dx, dy) < 3) return;
   drag.moved = true;
   paper.classList.add("dragging");
-  offsets[drag.key] = [drag.base[0] + dx, drag.base[1] + dy];
+  if (drag.dot) {
+    // 点は矢印や図形のふちの近くに来たら吸い付く
+    const d = drag.dot, q = snapPoint([d.x0 + drag.base[0] + dx, d.y0 + drag.base[1] + dy], state.L.snap);
+    offsets[drag.key] = [q[0] - d.x0, q[1] - d.y0];
+  } else {
+    offsets[drag.key] = [drag.base[0] + dx, drag.base[1] + dy];
+  }
   if (!dragFrame) dragFrame = requestAnimationFrame(() => { dragFrame = 0; update(); });
 });
 window.addEventListener("pointerup", () => {
@@ -1227,7 +1273,7 @@ window.addEventListener("pointerup", () => {
   const d = drag;
   drag = null;
   paper.classList.remove("dragging");
-  if (!d.moved) selectLine(d.line);
+  if (!d.moved && d.line >= 0) selectLine(d.line);
 });
 $("btnReset").addEventListener("click", () => {
   const prev = offsets;
