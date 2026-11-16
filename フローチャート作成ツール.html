@@ -110,7 +110,9 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
   background-size: 16px 16px; overflow: hidden; }
 .paper { background: var(--paper); box-shadow: 0 1px 2px var(--shadow), 0 8px 24px var(--shadow); width: 100%; max-width: 100%; }
 .paper svg { display: block; width: 100%; height: auto; }
-.paper .node { cursor: pointer; }
+.paper .node { cursor: grab; touch-action: none; }
+.paper.dragging .node { cursor: grabbing; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font-size: 13px; }
 .paper .node:hover .shape { stroke-width: 2.6; }
 .paper .node.cur .shape { stroke: #E0752D; stroke-width: 2.8; }
 .empty { fill: #8A979A; font-size: 16px; }
@@ -200,6 +202,12 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
             <option value="mono">白黒（資料向け）</option>
           </select>
         </label>
+        <label>形
+          <select id="optShape">
+            <option value="same">そろえる（すべて四角）</option>
+            <option value="kind">種類で変える（○◇□）</option>
+          </select>
+        </label>
         <label>文字
           <select id="optFont">
             <option value="meiryoui">Meiryo UI</option>
@@ -214,7 +222,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       <div class="board"><div class="paper" id="paper"></div></div>
       <div class="stats">
         <span id="stats"></span>
-        <span>図をクリックすると、その行に移ります</span>
+        <span>図形はドラッグで動かせます。クリックするとその行に移ります　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button></span>
       </div>
     </section>
   </main>
@@ -394,8 +402,8 @@ function wrap(text, maxW, fs, fam) {
   return lines;
 }
 function textBox(n) {
-  if (n.kind === "dec") return { w: n.w * 0.5, h: n.h * 0.62, ins: 0 };
-  if (n.kind === "term") return { w: n.w * 0.906 - 6, h: n.h * 0.86, ins: 3 };
+  if (n.look === "dec") return { w: n.w * 0.5, h: n.h * 0.62, ins: 0 };
+  if (n.look === "term") return { w: n.w * 0.906 - 6, h: n.h * 0.86, ins: 3 };
   return { w: n.w - 6, h: n.h - 2, ins: 3 };
 }
 function fitSize(n, base, fam) {
@@ -438,9 +446,11 @@ function layout(g, o) {
   const mainX = left + cp * (-minOff + 0.5);
   const top = aT + ((aB - aT) - total * rp) / 2;
 
+  // 「形をそろえる」ときは全部四角（判断・開始終了も同じ大きさ）
   const size = n => {
-    if (n.kind === "dec") { n.w = boxW * 1.15; n.h = decH; }
-    else if (n.kind === "term") { n.w = boxW * 0.8; n.h = boxH; }
+    n.look = o.shape === "kind" ? n.kind : "proc";
+    if (n.look === "dec") { n.w = boxW * 1.15; n.h = decH; }
+    else if (n.look === "term") { n.w = boxW * 0.8; n.h = boxH; }
     else { n.w = boxW; n.h = boxH; }
   };
   let y = top;
@@ -470,6 +480,18 @@ function layout(g, o) {
     n.y = g.nodes[g.entry[n.unit]].y;
   }
 
+  // ドラッグで動かした分を足す（同じ文字の図形は出てくる順で区別）
+  const seen = {};
+  L.moved = 0;
+  for (const n of g.nodes) {
+    if (!isShape(n)) continue;
+    const base = `${n.text}|${n.lane ?? ""}|${n.side ? n.col : ""}`;
+    seen[base] = (seen[base] || 0) + 1;
+    n.key = `${base}|${seen[base]}`;
+    const off = o.offsets[n.key];
+    if (off) { n.x += off[0]; n.y += off[1]; L.moved++; }
+  }
+
   // 文字の大きさはできるだけそろえる
   const shapes = g.nodes.filter(isShape);
   const base = Math.max(7, Math.min(16, boxH * 0.4));
@@ -481,20 +503,37 @@ function layout(g, o) {
   });
   L.fs = uni;
 
+  // 矢印の通り道。route: straight=まっすぐ / v3=縦→横→縦 / h3=横→縦→横 / j4=右→縦→左→下（戻り）
   const gapAbove = b => topOf(b) - rp * 0.09;
-  const laneX = left + cols * cp - (cp - boxW) / 2 + 12;
+  const shapesRight = Math.max(...g.nodes.map(n => (isShape(n) ? n.x + n.w / 2 : n.x2)));
+  const laneX = shapesRight + 12;
   let laneNo = 0;
   for (const e of g.edges) {
     const a = g.nodes[e.a], b = g.nodes[e.b];
-    let pts;
-    if (e.type === "down") {
-      const x = a.kind === "bar" ? b.x : a.x;   // 二重線からは各列の真上へ、二重線へは各列の真下から
-      pts = [[x, bottomOf(a)], [x, topOf(b)]];
+    let S, E, ln;
+    if (e.type === "down" || e.type === "merge") {
+      // 二重線からは各列の真上へ、二重線へは各列の真下から
+      S = [a.kind === "bar" ? b.x : a.x, bottomOf(a)];
+      E = [b.kind === "bar" ? a.x : b.x, topOf(b)];
+      if (Math.abs(S[0] - E[0]) < 0.5) ln = { route: "straight" };
+      else {
+        const gy = gapAbove(b);
+        ln = { route: "v3", my: e.type === "merge" && gy > S[1] && gy < E[1] ? gy : (S[1] + E[1]) / 2 };
+      }
+    } else if (e.type === "right") {
+      S = [a.x + a.w / 2, a.y];
+      E = [b.x - b.w / 2, b.y];
+      ln = Math.abs(S[1] - E[1]) < 0.5 ? { route: "straight" } : { route: "h3", mx: (S[0] + E[0]) / 2 };
+    } else {
+      S = [a.x + a.w / 2, a.y];
+      E = [b.x, topOf(b)];
+      ln = { route: "j4", lx: laneX + 12 * laneNo++, gy: gapAbove(b) };
     }
-    else if (e.type === "right") pts = [[a.x + a.w / 2, a.y], [b.x - b.w / 2, b.y]];
-    else if (e.type === "merge") { const gy = gapAbove(b); pts = [[a.x, bottomOf(a)], [a.x, gy], [b.x, gy], [b.x, topOf(b)]]; }
-    else { const gy = gapAbove(b), lx = laneX + 12 * laneNo++; pts = [[a.x + a.w / 2, a.y], [lx, a.y], [lx, gy], [b.x, gy], [b.x, topOf(b)]]; }
-    L.lines.push({ pts, type: e.type, a: e.a, b: e.b });
+    const pts = ln.route === "straight" ? [S, E]
+      : ln.route === "v3" ? [S, [S[0], ln.my], [E[0], ln.my], E]
+      : ln.route === "h3" ? [S, [ln.mx, S[1]], [ln.mx, E[1]], E]
+      : [S, [ln.lx, S[1]], [ln.lx, ln.gy], [E[0], ln.gy], E];
+    L.lines.push(Object.assign(ln, { S, E, pts, type: e.type, a: e.a, b: e.b }));
   }
 
   return L;
@@ -521,11 +560,11 @@ function svgOf(L, st, forImage) {
       out.push(`<path d="M${f1(n.x1)},${f1(topOf(n))} H${f1(n.x2)} M${f1(n.x1)},${f1(bottomOf(n))} H${f1(n.x2)}" stroke="${c(st.arrow)}" stroke-width="${st.lineW}" fill="none"/>`);
       return;
     }
-    const [fill, line] = st[n.kind];
+    const [fill, line] = st[n.look];
     const x = n.x - n.w / 2, y = n.y - n.h / 2;
     let shape;
-    if (n.kind === "dec") shape = `<path class="shape" d="M${f1(n.x)},${f1(y)} L${f1(x + n.w)},${f1(n.y)} L${f1(n.x)},${f1(y + n.h)} L${f1(x)},${f1(n.y)} Z"`;
-    else shape = `<rect class="shape" x="${f1(x)}" y="${f1(y)}" width="${f1(n.w)}" height="${f1(n.h)}"${n.kind === "term" ? ` rx="${f1(n.h / 2)}"` : ""}`;
+    if (n.look === "dec") shape = `<path class="shape" d="M${f1(n.x)},${f1(y)} L${f1(x + n.w)},${f1(n.y)} L${f1(n.x)},${f1(y + n.h)} L${f1(x)},${f1(n.y)} Z"`;
+    else shape = `<rect class="shape" x="${f1(x)}" y="${f1(y)}" width="${f1(n.w)}" height="${f1(n.h)}"${n.look === "term" ? ` rx="${f1(n.h / 2)}"` : ""}`;
     out.push(`<g class="node" data-i="${i}" data-line="${n.line}">${shape} fill="${c(fill)}" stroke="${c(line)}" stroke-width="${st.lineW}"/>`);
     const k = n.wrapped.length;
     n.wrapped.forEach((t, j) => {
@@ -544,85 +583,88 @@ function runXml(text, fs, color, font) {
   return `<a:r><a:rPr lang="ja-JP" altLang="en-US" sz="${Math.round(fs * 100)}" dirty="0"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:latin typeface="${esc(font)}"/><a:ea typeface="${esc(font)}"/></a:rPr><a:t>${esc(text)}</a:t></a:r>`;
 }
 function slideXml(L, st, font) {
-  let id = 3;
+  let id = 2;
   const kids = [], ids = [];
-  const box = { x1: Infinity, y1: Infinity, x2: -Infinity, y2: -Infinity };
-  const xf = (x, y, w, h, extra = "") => {
-    const X = EMU(x), Y = EMU(y), CX = Math.max(0, EMU(w)), CY = Math.max(0, EMU(h));
-    box.x1 = Math.min(box.x1, X); box.y1 = Math.min(box.y1, Y);
-    box.x2 = Math.max(box.x2, X + CX); box.y2 = Math.max(box.y2, Y + CY);
-    return `<a:xfrm${extra}><a:off x="${X}" y="${Y}"/><a:ext cx="${CX}" cy="${CY}"/></a:xfrm>`;
-  };
+  const xfrm = (x, y, w, h, attrs = "") =>
+    `<a:xfrm${attrs}><a:off x="${EMU(x)}" y="${EMU(y)}"/><a:ext cx="${Math.max(0, EMU(w))}" cy="${Math.max(0, EMU(h))}"/></a:xfrm>`;
   const lnXml = (color, w, arrow) =>
     `<a:ln w="${EMU(w)}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>${arrow ? '<a:tailEnd type="triangle" w="med" len="med"/>' : ""}</a:ln>`;
+  const flips = (h, v, rot) => `${rot ? ` rot="${rot}"` : ""}${h ? ' flipH="1"' : ""}${v ? ' flipV="1"' : ""}`;
   const geom = { proc: "flowChartProcess", dec: "flowChartDecision", term: "flowChartTerminator" };
   const kindName = { proc: "処理", dec: "判断", term: "端子" };
 
-  // 折れ線・二重線（paths は点の並びの配列。arrow で最後に矢じり）
-  const pathXml = (name, paths, arrow) => {
-    const all = paths.flat();
-    const xs = all.map(q => q[0]), ys = all.map(q => q[1]);
-    const x0 = Math.min(...xs), y0 = Math.min(...ys);
-    const w = Math.max(...xs) - x0, h = Math.max(...ys) - y0;
-    const pt = q => `<a:pt x="${EMU(q[0] - x0)}" y="${EMU(q[1] - y0)}"/>`;
-    const d = paths.map(p => `<a:moveTo>${pt(p[0])}</a:moveTo>${p.slice(1).map(q => `<a:lnTo>${pt(q)}</a:lnTo>`).join("")}`).join("");
-    return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${name} ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xf(x0, y0, w, h)}` +
-      `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="${Math.max(1, EMU(w))}" h="${Math.max(1, EMU(h))}" fill="none">` +
-      `${d}</a:path></a:pathLst></a:custGeom><a:noFill/>${lnXml(st.arrow, st.lineW, arrow)}</p:spPr></p:sp>`;
+  // 同時進行の二重線
+  const barXml = n => {
+    const W = n.x2 - n.x1;
+    return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${n.join ? "合流" : "同時進行"} ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(n.x1, topOf(n), W, n.h)}` +
+      `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="${Math.max(1, EMU(W))}" h="${Math.max(1, EMU(n.h))}" fill="none">` +
+      `<a:moveTo><a:pt x="0" y="0"/></a:moveTo><a:lnTo><a:pt x="${EMU(W)}" y="0"/></a:lnTo><a:moveTo><a:pt x="0" y="${EMU(n.h)}"/></a:moveTo><a:lnTo><a:pt x="${EMU(W)}" y="${EMU(n.h)}"/></a:lnTo>` +
+      `</a:path></a:pathLst></a:custGeom><a:noFill/>${lnXml(st.arrow, st.lineW, false)}</p:spPr></p:sp>`;
   };
 
   L.nodes.forEach((n, i) => {
     ids[i] = id;
-    if (n.kind === "bar") {
-      kids.push(pathXml(n.join ? "合流" : "同時進行", [[[n.x1, topOf(n)], [n.x2, topOf(n)]], [[n.x1, bottomOf(n)], [n.x2, bottomOf(n)]]], false));
-      id++;
-      return;
-    }
-    const [fill, line] = st[n.kind];
+    if (n.kind === "bar") { kids.push(barXml(n)); id++; return; }
+    const [fill, line] = st[n.look];
     const ins = EMU(textBox(n).ins);
     kids.push(`<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${kindName[n.kind]} ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>` +
-      `<p:spPr>${xf(n.x - n.w / 2, n.y - n.h / 2, n.w, n.h)}<a:prstGeom prst="${geom[n.kind]}"><a:avLst/></a:prstGeom>` +
+      `<p:spPr>${xfrm(n.x - n.w / 2, n.y - n.h / 2, n.w, n.h)}<a:prstGeom prst="${geom[n.look]}"><a:avLst/></a:prstGeom>` +
       `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>${lnXml(line, st.lineW, false)}</p:spPr>` +
       `<p:txBody><a:bodyPr wrap="square" lIns="${ins}" tIns="0" rIns="${ins}" bIns="0" rtlCol="0" anchor="ctr"><a:noAutofit/></a:bodyPr><a:lstStyle/>` +
       `<a:p><a:pPr algn="ctr"><a:lnSpc><a:spcPts val="${Math.round(n.fs * LH * 100)}"/></a:lnSpc></a:pPr>${runXml(n.text, n.fs, st.text, font)}</a:p></p:txBody></p:sp>`);
     id++;
   });
 
+  // 矢印はすべて図形にくっつくコネクタ（接続点 0=上 1=左 2=下 3=右）。二重線の側だけはくっつけない
+  const SITES = { down: [2, 0], merge: [2, 0], right: [3, 1], jump: [3, 0] };
+  const adj = (name, v) => `<a:gd name="${name}" fmla="val ${Math.round(v * 100000)}"/>`;
   for (const ln of L.lines) {
-    const p = ln.pts;
-    if (ln.type === "down" || ln.type === "right") {
-      // 図形にくっつく矢印（接続点 0=上 1=左 2=下 3=右）。二重線の側はくっつけない
-      const [s, e] = ln.type === "down" ? [2, 0] : [3, 1];
-      const glueA = L.nodes[ln.a].kind !== "bar", glueB = L.nodes[ln.b].kind !== "bar";
-      kids.push(`<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${id}" name="矢印 ${id}"/><p:cNvCxnSpPr>` +
-        `${glueA ? `<a:stCxn id="${ids[ln.a]}" idx="${s}"/>` : ""}${glueB ? `<a:endCxn id="${ids[ln.b]}" idx="${e}"/>` : ""}</p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr>` +
-        `<p:spPr>${xf(p[0][0], p[0][1], p[1][0] - p[0][0], p[1][1] - p[0][1])}<a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom>` +
-        `<a:noFill/>${lnXml(st.arrow, st.lineW, true)}</p:spPr></p:cxnSp>`);
+    const [sx, sy] = ln.S, [ex, ey] = ln.E;
+    const W = Math.max(Math.abs(ex - sx), 0.01), H = Math.max(Math.abs(ey - sy), 0.01);
+    const x0 = Math.min(sx, ex), y0 = Math.min(sy, ey);
+    let prst, xf, av = "";
+    if (ln.route === "straight") {
+      prst = "straightConnector1";
+      xf = xfrm(x0, y0, Math.abs(ex - sx), Math.abs(ey - sy), flips(ex < sx, ey < sy));
+    } else if (ln.route === "h3") {
+      prst = "bentConnector3";
+      xf = xfrm(x0, y0, W, H, flips(ex < sx, ey < sy));
+      av = adj("adj1", Math.abs(ln.mx - sx) / W);
+    } else if (ln.route === "j4") {
+      const fh = ex < sx, fv = ey < sy;
+      prst = "bentConnector4";
+      xf = xfrm(x0, y0, W, H, flips(fh, fv));
+      av = adj("adj1", (fh ? sx - ln.lx : ln.lx - sx) / W) + adj("adj2", (fv ? sy - ln.gy : ln.gy - sy) / H);
     } else {
-      kids.push(pathXml("矢印", [p], true));
+      // 縦→横→縦は、横→縦→横の形を 90° 回して作る
+      const down = ey > sy, leftward = ex < sx;
+      const cx = (sx + ex) / 2, cy = (sy + ey) / 2;
+      prst = "bentConnector3";
+      xf = xfrm(cx - H / 2, cy - W / 2, H, W, flips(!down, !leftward, 5400000));
+      av = adj("adj1", Math.abs(ln.my - sy) / H);
     }
+    const [sa, sb] = SITES[ln.type];
+    const glueA = L.nodes[ln.a].kind !== "bar", glueB = L.nodes[ln.b].kind !== "bar";
+    kids.push(`<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${id}" name="矢印 ${id}"/><p:cNvCxnSpPr>` +
+      `${glueA ? `<a:stCxn id="${ids[ln.a]}" idx="${sa}"/>` : ""}${glueB ? `<a:endCxn id="${ids[ln.b]}" idx="${sb}"/>` : ""}</p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr>` +
+      `<p:spPr>${xf}<a:prstGeom prst="${prst}"><a:avLst>${av}</a:avLst></a:prstGeom>` +
+      `<a:noFill/>${lnXml(st.arrow, st.lineW, true)}</p:spPr></p:cxnSp>`);
     id++;
   }
 
-  const textBoxXml = (x, y, w, h, text, fs, color, algn, bold) =>
-    `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="テキスト ${id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>${xf(x, y, w, h)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>` +
-    `<p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0" anchor="t"><a:noAutofit/></a:bodyPr><a:lstStyle/>` +
-    `<a:p><a:pPr algn="${algn}"/>${runXml(text, fs, color, font).replace("<a:rPr ", bold ? '<a:rPr b="1" ' : "<a:rPr ")}</a:p></p:txBody></p:sp>`;
-
-  let group = "";
-  if (kids.length) {
-    const g = `<a:off x="${box.x1}" y="${box.y1}"/><a:ext cx="${box.x2 - box.x1}" cy="${box.y2 - box.y1}"/>`;
-    group = `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="2" name="フローチャート"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
-      `<p:grpSpPr><a:xfrm>${g}${g.replace("a:off", "a:chOff").replace("a:ext", "a:chExt")}</a:xfrm></p:grpSpPr>${kids.join("")}</p:grpSp>`;
+  if (L.title) {
+    const t = L.title;
+    kids.push(`<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="タイトル ${id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(t.x, t.y, L.W - t.x * 2, t.fs * 1.6)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>` +
+      `<p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0" anchor="t"><a:noAutofit/></a:bodyPr><a:lstStyle/>` +
+      `<a:p><a:pPr algn="l"/>${runXml(t.text, t.fs, st.text, font).replace("<a:rPr ", '<a:rPr b="1" ')}</a:p></p:txBody></p:sp>`);
   }
-  let title = "";
-  if (L.title) title = textBoxXml(L.title.x, L.title.y, L.W - L.title.x * 2, L.title.fs * 1.6, L.title.text, L.title.fs, st.text, "l", true);
 
+  // まとめ（グループ）にはせず、1 つずつ自由に動かせるようにする
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">` +
     `<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
     `<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>` +
-    `${group}${title}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+    `${kids.join("")}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
 }
 
 function pptxParts(L, st, font) {
@@ -674,13 +716,14 @@ function zipBytes(files) {
 // ---------- 画面 ----------
 const $ = id => document.getElementById(id);
 const ta = $("src"), gutter = $("gutter"), paper = $("paper"), msgsEl = $("msgs");
-const optIds = ["optSize", "optStyle", "optFont", "optTitle"];
+const optIds = ["optSize", "optStyle", "optFont", "optShape", "optTitle"];
 let state = null;
+let offsets = {};   // ドラッグで動かした量（図形ごと、pt）
 
 function options() {
   return {
     size: $("optSize").value, style: $("optStyle").value, font: $("optFont").value,
-    title: clean($("optTitle").value),
+    shape: $("optShape").value || "same", title: clean($("optTitle").value), offsets,
   };
 }
 
@@ -714,6 +757,7 @@ function update() {
   $("stats").innerHTML = g.M
     ? `手順 <span class="n">${g.M}</span>　判断 <span class="n">${decs}</span>　同時進行 <span class="n">${pars}</span>　合流・戻り <span class="n">${jumps}</span>`
     : "手順はまだありません";
+  $("btnReset").hidden = !L.moved;
   markCurrent();
   save();
 }
@@ -726,7 +770,7 @@ function markCurrent() {
 
 function save() {
   try {
-    const o = { src: ta.value };
+    const o = { src: ta.value, offsets };
     optIds.forEach(id => { o[id] = $(id).value; });
     localStorage.setItem("fc-tool-v1", JSON.stringify(o));
   } catch (e) { /* 保存できなくても動く */ }
@@ -736,6 +780,8 @@ function load() {
   try { o = JSON.parse(localStorage.getItem("fc-tool-v1") || "null"); } catch (e) { o = null; }
   ta.value = o && typeof o.src === "string" ? o.src : SAMPLES.gyomu;
   if (o) optIds.forEach(id => { if (typeof o[id] === "string") $(id).value = o[id]; });
+  if (o && o.offsets && typeof o.offsets === "object") offsets = o.offsets;
+  if (!$("optShape").value) $("optShape").value = "same";
   if (!$("optSize").value) $("optSize").value = "w169";
   if (!$("optStyle").value) $("optStyle").value = "color";
   if (!$("optFont").value) $("optFont").value = "meiryoui";
@@ -860,9 +906,11 @@ $("sample").addEventListener("change", e => {
   e.target.value = "";
   if (!SAMPLES[k]) return;
   const prev = ta.value;
+  const prevOffsets = offsets;
   ta.value = SAMPLES[k];
+  offsets = {};
   update();
-  toast("サンプルを入れました。", "元に戻す", () => { ta.value = prev; update(); });
+  toast("サンプルを入れました。", "元に戻す", () => { ta.value = prev; offsets = prevOffsets; update(); });
 });
 
 ta.addEventListener("input", update);
@@ -870,17 +918,53 @@ ta.addEventListener("scroll", () => { gutter.scrollTop = ta.scrollTop; });
 ["keyup", "click", "focus", "blur", "select"].forEach(ev => ta.addEventListener(ev, markCurrent));
 optIds.forEach(id => $(id).addEventListener(id.startsWith("opt") && $(id).tagName === "SELECT" ? "change" : "input", update));
 
-paper.addEventListener("click", e => {
-  const g = e.target.closest(".node");
-  if (!g) return;
-  const line = +g.dataset.line;
+function selectLine(line) {
   const lines = ta.value.split("\n");
+  if (line < 0 || line >= lines.length) return;
   let s = 0; for (let i = 0; i < line; i++) s += lines[i].length + 1;
   ta.focus();
   ta.setSelectionRange(s, s + lines[line].length);
   const lh = parseFloat(getComputedStyle(ta).lineHeight) || 26;
   ta.scrollTop = Math.max(0, line * lh - ta.clientHeight / 3);
   markCurrent();
+}
+
+// 図形のドラッグ（少しでも動かしたら移動、動かさなければその行へ）
+let drag = null, dragFrame = 0;
+function svgPoint(e) {
+  const svg = paper.querySelector("svg");
+  const pt = svg.createSVGPoint();
+  pt.x = e.clientX; pt.y = e.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+paper.addEventListener("pointerdown", e => {
+  const el = e.target.closest(".node");
+  if (!el || e.button > 0) return;
+  const n = state.L.nodes[+el.dataset.i];
+  drag = { key: n.key, line: +el.dataset.line, start: svgPoint(e), base: (offsets[n.key] || [0, 0]).slice(), moved: false };
+  e.preventDefault();
+});
+window.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const p = svgPoint(e), dx = p.x - drag.start.x, dy = p.y - drag.start.y;
+  if (!drag.moved && Math.hypot(dx, dy) < 3) return;
+  drag.moved = true;
+  paper.classList.add("dragging");
+  offsets[drag.key] = [drag.base[0] + dx, drag.base[1] + dy];
+  if (!dragFrame) dragFrame = requestAnimationFrame(() => { dragFrame = 0; update(); });
+});
+window.addEventListener("pointerup", () => {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  paper.classList.remove("dragging");
+  if (!d.moved) selectLine(d.line);
+});
+$("btnReset").addEventListener("click", () => {
+  const prev = offsets;
+  offsets = {};
+  update();
+  toast("配置を元に戻しました。", "取り消す", () => { offsets = prev; update(); });
 });
 
 $("btnSave").addEventListener("click", savePptx);
