@@ -255,7 +255,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       </div>
       <div class="stats">
         <span id="stats"></span>
-        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すと、つなぎ先が変わります。クリックするとその行に移ります　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button></span>
+        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すと、つなぎ先が変わります。箱をクリックして Delete キーで、その手順を消せます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button></span>
       </div>
     </section>
   </main>
@@ -326,7 +326,8 @@ const NOTE_RE = /^[@＠]\s*/;          // 照査・打合せなど（右に付�
 const NUM_RE = /^[0-9０-９]+[.．)）、:：](?![0-9０-９])\s*/;
 const SUBNUM_RE = /^[（(][0-9０-９]+[)）]\s*/;
 
-function parse(src, autoNum) {
+function parse(src, autoNum, ids) {
+  const idOf = i => (ids && ids[i]) || `L${i}`;
   const lines = src.replace(/\r\n?/g, "\n").split("\n");
   const units = [], sides = [], lineInfo = [];
   let block = null, side = null, lastMain = null, lastStep = null;
@@ -342,7 +343,7 @@ function parse(src, autoNum) {
     if (NOTE_RE.test(s)) {
       const items = s.replace(NOTE_RE, "").split(/[、,，・\/／]/).map(clean).filter(Boolean);
       // 見出しのすぐ後 → 見出しの横 / 小項目の間 → その間 / 最後 → 次の手順との間
-      if (lastMain && items.length) lastMain.notes.push({ pos: lastStep === lastMain ? lastMain.subs.length : Infinity, items, line: i });
+      if (lastMain && items.length) lastMain.notes.push({ pos: lastStep === lastMain ? lastMain.subs.length : Infinity, items, line: i, uid: idOf(i) });
       lineInfo.push({ type: "memo" });
       return;
     }
@@ -354,9 +355,9 @@ function parse(src, autoNum) {
     }
     if (LANE_RE.test(s)) {
       const lane = s.replace(LANE_RE, "").split(/→|->|⇒|＞|>/).map(clean).filter(Boolean)
-        .map(t => Object.assign(classify(stepText(t)), { line: i, subs: [] }));
+        .map((t, k) => Object.assign(classify(stepText(t)), { line: i, subs: [], uid: `${idOf(i)}|${k}` }));
       if (!block) {
-        block = { kind: "block", lanes: [], line: i, notes: [], subs: [] };
+        block = { kind: "block", lanes: [], line: i, notes: [], subs: [], uid: idOf(i) };
         units.push(block);
         lineInfo.push({ type: "lane", n: units.length });
       } else {
@@ -373,8 +374,8 @@ function parse(src, autoNum) {
       const target = p >= 0 ? clean(t.slice(p + 1).split(">")[0]) : "";
       if (!side) { side = { after: lastMain, items: [], target: "", line: i }; sides.push(side); }
       if (target) side.target = target;
-      for (const part of head.split(/→|->|⇒/).map(clean).filter(Boolean)) {
-        const st = Object.assign(classify(stepText(part)), { subs: [], line: i });
+      for (const [k, part] of head.split(/→|->|⇒/).map(clean).filter(Boolean).entries()) {
+        const st = Object.assign(classify(stepText(part)), { subs: [], line: i, uid: `${idOf(i)}|<${k}` });
         side.items.push(st);
         lastStep = st;
       }
@@ -390,7 +391,7 @@ function parse(src, autoNum) {
     const p = t.indexOf(">");
     const head = p >= 0 ? t.slice(0, p) : t;
     const chain = p >= 0 ? t.slice(p + 1).split(">").map(clean).filter(Boolean) : [];
-    const u = Object.assign(classify(stepText(clean(head))), { chain, line: i, subs: [], notes: [] });
+    const u = Object.assign(classify(stepText(clean(head))), { chain, line: i, subs: [], notes: [], uid: idOf(i) });
     units.push(u);
     lastMain = lastStep = u;
     lineInfo.push({ type: "step", n: units.length });
@@ -421,9 +422,9 @@ function buildGraph(units, sides) {
       entry[i] = exit[i] = add(Object.assign({}, u, { unit: i, col: 0 }));
       return;
     }
-    u.fork = add({ kind: "bar", unit: i, line: u.line });
+    u.fork = add({ kind: "bar", unit: i, line: u.line, key: `${u.uid}|f` });
     u.laneNodes = u.lanes.map((lane, j) => lane.map(s => add(Object.assign({}, s, { unit: i, lane: j }))));
-    u.join = add({ kind: "bar", unit: i, line: u.line, join: true });
+    u.join = add({ kind: "bar", unit: i, line: u.line, join: true, key: `${u.uid}|j` });
     entry[i] = u.fork;
     exit[i] = u.join;
     for (const l of u.laneNodes) {
@@ -452,7 +453,7 @@ function buildGraph(units, sides) {
         break;
       }
       col++;
-      const n = add(Object.assign(classify(it), { unit: i, col, line: u.line, side: true, subs: [] }));
+      const n = add(Object.assign(classify(it), { unit: i, col, line: u.line, side: true, subs: [], uid: `${u.uid}|s${col}` }));
       edges.push({ a: prv, b: n, type: "right" });
       prv = n;
     }
@@ -654,19 +655,19 @@ function layout(g, o) {
         counts[base] = (counts[base] || 0) + 1;
         const label = o.num && !/[①-⑳]$/.test(base) ? base + CIRCLED(counts[base]) : base;
         const cat = /照査/.test(base) ? "check" : /打合|打ち合|協議|会議/.test(base) ? "meet" : "other";
-        return { kind: "note", text: base, label, cat, line: grp.line, look: "proc", w: noteW, h: noteH, unit: i, pos: grp.pos };
+        return { kind: "note", text: base, label, cat, line: grp.line, look: "proc", w: noteW, h: noteH, unit: i, pos: grp.pos, uid: `${grp.uid}|n${grp.items.indexOf(t)}` };
       });
-      groups.push({ unit: i, pos: grp.pos, items, line: grp.line });
+      groups.push({ unit: i, pos: grp.pos, items, line: grp.line, uid: grp.uid });
     }
   });
 
-  // ドラッグで動かした分を足す（同じ文字の図形は出てくる順で区別）
+  // ドラッグで動かした分を足す。どの図形かは「行」で覚えるので、文字を書き換えても消えない
   const seen = {};
   L.moved = 0;
   const applyOffset = n => {
-    const base = `${n.kind === "note" ? "@" : ""}${n.text}|${n.lane ?? ""}|${n.side ? n.col : ""}|${n.sideLane ? "<" : ""}`;
+    const base = n.uid || `${n.kind === "note" ? "@" : ""}${n.text}|${n.lane ?? ""}|${n.side ? n.col : ""}|${n.sideLane ? "<" : ""}`;
     seen[base] = (seen[base] || 0) + 1;
-    n.key = `${base}|${seen[base]}`;
+    n.key = seen[base] > 1 ? `${base}|${seen[base]}` : base;
     const off = o.offsets[n.key];
     if (off) { n.x += off[0]; n.y += off[1]; L.moved++; }
   };
@@ -676,7 +677,7 @@ function layout(g, o) {
     d.x0 = d.x; d.y0 = d.y;
     const base = `●${name}`;
     seen[base] = (seen[base] || 0) + 1;
-    d.key = `${base}|${seen[base]}`;
+    d.key = seen[base] > 1 ? `${base}|${seen[base]}` : base;
     const off = o.offsets[d.key];
     if (off) { d.x += off[0]; d.y += off[1]; L.moved++; }
     return d;
@@ -719,7 +720,7 @@ function layout(g, o) {
     let t = Math.max(grp.dot.y - tot / 2, floor + 3);
     floor = t + tot;
     // 点を動かすと、箱も一緒についていく（箱だけ動かすこともできる）
-    placeDot(grp.dot, grp.items.map(it => it.text).join("・"));
+    placeDot(grp.dot, grp.uid);
     const ddx = grp.dot.x - grp.dot.x0, ddy = grp.dot.y - grp.dot.y0;
     grp.items.forEach((it, j) => { it.x = noteX + ddx; it.y = t + j * (noteH + A.noteGap * s) + noteH / 2 + ddy; });
     grp.items.forEach(applyOffset);
@@ -816,12 +817,12 @@ function layout(g, o) {
   g.sideLanes.forEach(sl => {
     const first = g.nodes[sl.ids[0]], last = g.nodes[sl.ids[sl.ids.length - 1]];
     const P = nodeOf(sl.from);
-    const d1 = placeDot({ x: P.x, y: topOf(P) - (A.gap / 2) * s }, `<${first.text}`);
+    const d1 = placeDot({ x: P.x, y: topOf(P) - (A.gap / 2) * s }, `<${first.uid}`);
     L.dots.push(d1);
     L.lines.push({ route: "h2", S: [d1.x, d1.y], E: [first.x, topOf(first)], type: "branch", a: -1, b: first.idx, dot: d1, dashed: true, arrow: false });
     if (sl.to >= 0 && !last.isEnd) {
       const T = nodeOf(sl.to);
-      const d2 = placeDot({ x: T.x, y: topOf(T) - (A.gap / 2) * s }, `>${last.text}`);
+      const d2 = placeDot({ x: T.x, y: topOf(T) - (A.gap / 2) * s }, `>${last.uid}`);
       L.dots.push(d2);
       L.lines.push({ route: "v2", S: [last.x, bottomOf(last)], E: [d2.x, d2.y], type: "rejoin", a: last.idx, b: -1, dot: d2, dashed: true, arrow: false });
     }
@@ -1096,13 +1097,31 @@ function options() {
   };
 }
 
+// ---------- 行の見分け ----------
+// 各行に見えない番号を付けて、書き換え・行の追加や削除のあとも同じ行として追いかける
+let lineIds = [], prevLines = [];
+const newId = () => Math.random().toString(36).slice(2, 9);
+function syncIds() {
+  const N = ta.value.replace(/\r\n?/g, "\n").split("\n"), O = prevLines;
+  if (O.length !== lineIds.length) { lineIds = N.map(newId); prevLines = N; return; }
+  let p = 0;
+  while (p < O.length && p < N.length && O[p] === N[p]) p++;
+  let q = 0;
+  while (q < O.length - p && q < N.length - p && O[O.length - 1 - q] === N[N.length - 1 - q]) q++;
+  const oldMid = lineIds.slice(p, O.length - q), mid = [];
+  for (let k = 0; k < N.length - q - p; k++) mid.push(k < oldMid.length ? oldMid[k] : newId());
+  lineIds = lineIds.slice(0, p).concat(mid, lineIds.slice(O.length - q));
+  prevLines = N;
+}
+
 function update() {
   const o = options();
-  const { units, sides, lineInfo } = parse(ta.value, o.num);
+  syncIds();
+  const { units, sides, lineInfo } = parse(ta.value, o.num, lineIds);
   const g = buildGraph(units, sides);
   const L = layout(g, o);
   const st = STYLES[o.style];
-  state = { L, st, o, g };
+  state = { L, st, o, g, lineInfo };
 
   const errLines = new Set(g.msgs.filter(m => m.level === "warn").map(m => m.line));
   gutter.innerHTML = lineInfo.map((li, i) => {
@@ -1139,7 +1158,7 @@ function markCurrent() {
 
 function save() {
   try {
-    const o = { src: ta.value, offsets, rewires };
+    const o = { src: ta.value, offsets, rewires, lineIds };
     optIds.forEach(id => { o[id] = $(id).value; });
     localStorage.setItem("fc-tool-v1", JSON.stringify(o));
   } catch (e) { /* 保存できなくても動く */ }
@@ -1151,6 +1170,10 @@ function load() {
   if (o) optIds.forEach(id => { if (typeof o[id] === "string") $(id).value = o[id]; });
   if (o && o.offsets && typeof o.offsets === "object") offsets = o.offsets;
   if (o && o.rewires && typeof o.rewires === "object") rewires = o.rewires;
+  if (o && Array.isArray(o.lineIds) && o.lineIds.length === ta.value.split("\n").length) {
+    lineIds = o.lineIds;
+    prevLines = ta.value.split("\n");
+  }
   if (!$("optShape").value) $("optShape").value = "same";
   if (!o) { $("optSize").value = "a4p"; $("optStyle").value = "gyomu"; }
   if (!$("optSize").value) $("optSize").value = "w169";
@@ -1298,16 +1321,40 @@ optIds.forEach(id => {
   if (!sel) $(id).addEventListener("change", commit);
 });
 
+let picked = null;   // 図をクリックして選んだ行（Delete でまとめて消す）
 function selectLine(line) {
   const lines = ta.value.split("\n");
   if (line < 0 || line >= lines.length) return;
   let s = 0; for (let i = 0; i < line; i++) s += lines[i].length + 1;
   ta.focus();
   ta.setSelectionRange(s, s + lines[line].length);
+  picked = { line, start: s, end: s + lines[line].length };
   const lh = parseFloat(getComputedStyle(ta).lineHeight) || 26;
   ta.scrollTop = Math.max(0, line * lh - ta.clientHeight / 3);
   markCurrent();
 }
+
+// 図で選んだ手順を Delete / BackSpace で消す（その下の「・小項目」「@照査…」の行も一緒に）
+ta.addEventListener("keydown", e => {
+  if (!picked || (e.key !== "Delete" && e.key !== "Backspace")) return;
+  if (ta.selectionStart !== picked.start || ta.selectionEnd !== picked.end) { picked = null; return; }
+  e.preventDefault();
+  const lines = ta.value.split("\n"), info = state.lineInfo;
+  let last = picked.line;
+  if (info[picked.line] && ["step", "side"].includes(info[picked.line].type)) {
+    while (last + 1 < lines.length && info[last + 1] && ["sub", "memo"].includes(info[last + 1].type)) last++;
+  }
+  let s = 0; for (let i = 0; i < picked.line; i++) s += lines[i].length + 1;
+  let t = s; for (let i = picked.line; i <= last; i++) t += lines[i].length + 1;
+  if (t > ta.value.length) { t = ta.value.length; if (s > 0) s--; }   // 最後の行は前の改行ごと消す
+  const name = clean(lines[picked.line]);
+  picked = null;
+  typeAt(s, t, "");
+  update();
+  commit();
+  toast(`「${name}」を消しました。`, "元に戻す", undo);
+});
+ta.addEventListener("mousedown", () => { picked = null; });
 
 // 図形のドラッグ（少しでも動かしたら移動、動かさなければその行へ）
 let drag = null, dragFrame = 0;
@@ -1475,7 +1522,7 @@ $("btnCopy").addEventListener("click", copyImage);
 const past = [], future = [];
 let current = "";
 function snapshot() {
-  return JSON.stringify({ src: ta.value, offsets, rewires, opts: optIds.map(id => $(id).value) });
+  return JSON.stringify({ src: ta.value, offsets, rewires, lineIds, opts: optIds.map(id => $(id).value) });
 }
 function refreshUndo() {
   $("btnUndo").disabled = !past.length && snapshot() === current;
@@ -1495,6 +1542,7 @@ function commit() {
 function restore(snap) {
   const o = JSON.parse(snap);
   ta.value = o.src;
+  if (o.lineIds) { lineIds = o.lineIds; prevLines = o.src.split("\n"); }
   offsets = o.offsets;
   rewires = o.rewires;
   optIds.forEach((id, i) => { $(id).value = o.opts[i]; });
