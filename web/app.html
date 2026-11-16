@@ -113,6 +113,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
 .linepop button { border: 1px solid var(--rule); background: var(--panel); border-radius: 5px; padding: 3px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .linepop button svg { width: 22px; height: 6px; }
 .linepop button svg line { stroke: currentColor; stroke-width: 2; }
+.linepop button[data-del] { color: var(--warn); }
 .linepop button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .zoombar .pct { min-width: 3.4em; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); }
 .paper svg { display: block; width: 100%; height: auto; }
@@ -254,12 +255,13 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
           <span class="lbl">線</span>
           <button type="button" data-ls="solid"><svg viewBox="0 0 22 6"><line x1="0" y1="3" x2="22" y2="3"/></svg>実線</button>
           <button type="button" data-ls="dashed"><svg viewBox="0 0 22 6"><line x1="0" y1="3" x2="22" y2="3" stroke-dasharray="4 3"/></svg>点線</button>
+          <button type="button" data-del title="この線を消す（Delete）">消す</button>
         </div>
         <div class="scroller" id="scroller"><div class="paper" id="paper"></div></div>
       </div>
       <div class="stats">
         <span id="stats"></span>
-        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すと、つなぎ先が変わります。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選べます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button></span>
+        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すと、つなぎ先が変わります。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりできます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
       </div>
     </section>
   </main>
@@ -843,9 +845,13 @@ function layout(g, o) {
       L.moved++;
     }
     const ls = ln.key && o.lineStyles[ln.key];
-    if (ls) ln.dashed = ls === "dashed";
+    if (ls === "none") ln.hidden = true;
+    else if (ls) ln.dashed = ls === "dashed";
     ln.pts = pts(ln);
   }
+  // 消した線は描かない（「消した線を戻す」で戻せる）
+  L.hiddenLines = L.lines.filter(l => l.hidden).length;
+  L.lines = L.lines.filter(l => !l.hidden);
   L.dotR = Math.max(1.8, s * 0.07);
   // 点を吸い付かせる先：実線の矢印と、図形のふち
   L.snap = [];
@@ -1157,6 +1163,7 @@ function update() {
     ? `手順 <span class="n">${g.M}</span>　判断 <span class="n">${decs}</span>　同時進行 <span class="n">${pars}</span>　合流・戻り <span class="n">${jumps}</span>`
     : "手順はまだありません";
   $("btnReset").hidden = !L.moved;
+  $("btnShowLines").hidden = !L.hiddenLines;
   markCurrent();
   save();
 }
@@ -1389,7 +1396,17 @@ function hideLinePop() {
   selWire = null;
   update();
 }
+function deleteWire() {
+  if (!selWire) return;
+  lineStyles[selWire] = "none";
+  linePop.hidden = true;
+  selWire = null;
+  update();
+  commit();
+  toast("線を消しました。", "元に戻す", undo);
+}
 linePop.addEventListener("click", e => {
+  if (e.target.closest("[data-del]")) { deleteWire(); return; }
   const b = e.target.closest("[data-ls]");
   if (!b || !selWire) return;
   lineStyles[selWire] = b.dataset.ls;
@@ -1398,7 +1415,17 @@ linePop.addEventListener("click", e => {
   linePop.querySelectorAll("[data-ls]").forEach(x => x.classList.toggle("on", x === b));
 });
 paper.addEventListener("pointerdown", e => { if (selWire && !e.target.closest(".wire")) hideLinePop(); }, true);
-document.addEventListener("keydown", e => { if (e.key === "Escape" && selWire) hideLinePop(); });
+document.addEventListener("keydown", e => {
+  if (!selWire) return;
+  if (e.key === "Escape") hideLinePop();
+  if ((e.key === "Delete" || e.key === "Backspace") && !/^(TEXTAREA|INPUT|SELECT)$/.test(document.activeElement.tagName)) { e.preventDefault(); deleteWire(); }
+});
+$("btnShowLines").addEventListener("click", () => {
+  for (const k of Object.keys(lineStyles)) if (lineStyles[k] === "none") delete lineStyles[k];
+  update();
+  commit();
+  toast("消した線を戻しました。", "元に戻す", undo);
+});
 
 // 図形のドラッグ（少しでも動かしたら移動、動かさなければその行へ）
 let drag = null, dragFrame = 0;
