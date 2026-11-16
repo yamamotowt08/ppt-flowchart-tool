@@ -106,10 +106,16 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
 .opts label.grow { flex: 1 1 200px; }
 .opts label.grow input { flex: 1; }
 
-.board { border-radius: 8px; border: 1px solid var(--rule); padding: 22px; display: grid; place-items: center; background-color: var(--desk);
+.board { position: relative; border-radius: 8px; border: 1px solid var(--rule); overflow: hidden; }
+.scroller { overflow: auto; max-height: 78vh; padding: 22px; background-color: var(--desk);
   background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 16px 16px; overflow: hidden; }
-.paper { background: var(--paper); box-shadow: 0 1px 2px var(--shadow), 0 8px 24px var(--shadow); width: 100%; max-width: 100%; }
+  background-size: 16px 16px; }
+.scroller.panning { cursor: grabbing; }
+.paper { background: var(--paper); box-shadow: 0 1px 2px var(--shadow), 0 8px 24px var(--shadow); margin: 0 auto; }
+.zoombar { position: absolute; top: 8px; right: 12px; z-index: 2; display: flex; align-items: center; gap: 2px; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 2px; box-shadow: 0 2px 8px var(--shadow); }
+.zoombar button { border: 0; background: none; border-radius: 4px; min-width: 30px; height: 28px; cursor: pointer; font-weight: 700; padding: 0 8px; }
+.zoombar button:hover { background: var(--accent-soft); }
+.zoombar .pct { min-width: 3.4em; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); }
 .paper svg { display: block; width: 100%; height: auto; }
 .paper .node { cursor: grab; touch-action: none; }
 .paper .dot { cursor: move; touch-action: none; }
@@ -238,7 +244,15 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
         </label>
         <label class="grow">タイトル <input id="optTitle" type="text" placeholder="なしでも大丈夫です"></label>
       </div>
-      <div class="board"><div class="paper" id="paper"></div></div>
+      <div class="board">
+        <div class="zoombar" role="toolbar" aria-label="ズーム">
+          <button id="zOut" type="button" title="小さく">－</button>
+          <span id="zPct" class="pct">100%</span>
+          <button id="zIn" type="button" title="大きく">＋</button>
+          <button id="zFit" type="button" title="全体を表示">全体</button>
+        </div>
+        <div class="scroller" id="scroller"><div class="paper" id="paper"></div></div>
+      </div>
       <div class="stats">
         <span id="stats"></span>
         <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すと、つなぎ先が変わります。クリックするとその行に移ります　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button></span>
@@ -1103,7 +1117,7 @@ function update() {
     `<div class="m ${m.level}">${m.line >= 0 ? `<b>${m.line + 1} 行目</b>` : ""}<span>${esc(m.text)}</span></div>`).join("");
 
   paper.style.aspectRatio = `${L.W} / ${L.H}`;
-  paper.style.maxWidth = L.H > L.W ? "min(100%, 520px)" : "100%";
+  paper.style.width = `${baseWidth() * zoom}px`;
   paper.innerHTML = svgOf(L, st, false);
 
   const jumps = g.edges.filter(e => e.type === "jump" || e.type === "merge").length;
@@ -1303,6 +1317,48 @@ function svgPoint(e) {
   pt.x = e.clientX; pt.y = e.clientY;
   return pt.matrixTransform(svg.getScreenCTM().inverse());
 }
+// ---------- ズーム ----------
+// 「全体」(100%) はプレビュー欄にスライド全体が収まる大きさ。Ctrl+ホイールでも拡大・縮小
+const scroller = $("scroller");
+let zoom = 1, pan = null;
+function baseWidth() {
+  const L = state ? state.L : { W: 960, H: 540 };
+  const avail = Math.max(200, scroller.clientWidth - 44);
+  const byHeight = (window.innerHeight * 0.78 - 44) * L.W / L.H;
+  return L.H > L.W ? Math.max(200, Math.min(avail, byHeight)) : avail;
+}
+function setZoom(z, at) {
+  const r = scroller.getBoundingClientRect();
+  const ax = at ? at.x - r.left : scroller.clientWidth / 2, ay = at ? at.y - r.top : scroller.clientHeight / 2;
+  // 見ている所（マウスの位置）がずれないようにする
+  const fx = (scroller.scrollLeft + ax - paper.offsetLeft) / paper.offsetWidth;
+  const fy = (scroller.scrollTop + ay - paper.offsetTop) / paper.offsetHeight;
+  zoom = Math.min(4, Math.max(0.5, z));
+  paper.style.width = `${baseWidth() * zoom}px`;
+  scroller.scrollLeft = paper.offsetLeft + fx * paper.offsetWidth - ax;
+  scroller.scrollTop = paper.offsetTop + fy * paper.offsetHeight - ay;
+  $("zPct").textContent = `${Math.round(zoom * 100)}%`;
+}
+$("zIn").addEventListener("click", () => setZoom(zoom * 1.25));
+$("zOut").addEventListener("click", () => setZoom(zoom / 1.25));
+$("zFit").addEventListener("click", () => setZoom(1));
+scroller.addEventListener("wheel", e => {
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();
+  setZoom(zoom * Math.exp(-e.deltaY * 0.0015), { x: e.clientX, y: e.clientY });
+}, { passive: false });
+window.addEventListener("resize", () => setZoom(zoom));
+// 拡大中は、何もない所をドラッグすると見る場所を動かせる
+function startPan(e) {
+  pan = { x: e.clientX, y: e.clientY, l: scroller.scrollLeft, t: scroller.scrollTop };
+  scroller.classList.add("panning");
+  e.preventDefault();
+}
+function movePan(e) {
+  scroller.scrollLeft = pan.l - (e.clientX - pan.x);
+  scroller.scrollTop = pan.t - (e.clientY - pan.y);
+}
+
 // 矢印のはしをつかんで、別の箱の上で離すと付け替わる
 let endDrag = null;
 function shapeAt(p) {
@@ -1365,6 +1421,7 @@ paper.addEventListener("pointerdown", e => {
   if (endEl && e.button === 0) { startEndDrag(endEl, e); return; }
   const dotEl = e.target.closest(".dot"), wireEl = e.target.closest(".wire");
   const el = dotEl || e.target.closest(".node") || wireEl;
+  if (!el && e.button === 0 && zoom > 1) { startPan(e); return; }
   if (!el || e.button > 0) return;
   const n = dotEl ? state.L.dots[+dotEl.dataset.dot]
     : wireEl && el === wireEl ? state.L.lines[+wireEl.dataset.w]
@@ -1376,6 +1433,7 @@ paper.addEventListener("pointerdown", e => {
   e.preventDefault();
 });
 window.addEventListener("pointermove", e => {
+  if (pan) { movePan(e); return; }
   if (endDrag) { moveEndDrag(e); return; }
   if (!drag) return;
   const p = svgPoint(e), dx = p.x - drag.start.x, dy = p.y - drag.start.y;
@@ -1393,6 +1451,7 @@ window.addEventListener("pointermove", e => {
   if (!dragFrame) dragFrame = requestAnimationFrame(() => { dragFrame = 0; update(); });
 });
 window.addEventListener("pointerup", e => {
+  if (pan) { pan = null; scroller.classList.remove("panning"); return; }
   if (endDrag) { finishEndDrag(e); return; }
   if (!drag) return;
   const d = drag;
