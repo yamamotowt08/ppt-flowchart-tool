@@ -57,6 +57,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .btn { border: 1px solid var(--rule); background: var(--panel); border-radius: 6px; padding: 8px 14px; cursor: pointer; font-weight: 700; }
 .btn:hover { border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; border-color: var(--rule); }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); padding-inline: 18px; }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn .key { font-weight: 400; opacity: .75; font-size: 12px; margin-left: 6px; }
@@ -138,6 +139,8 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       <p>手順を書くと、その場で図ができます。PowerPoint の図形のまま保存できます。</p>
     </div>
     <div class="actions">
+      <button id="btnUndo" class="btn" type="button" title="元に戻す（Ctrl+Z）" disabled>↶ 元に戻す</button>
+      <button id="btnRedo" class="btn" type="button" title="やり直す（Ctrl+Y）" disabled>↷ やり直す</button>
       <button id="btnCopy" class="btn" type="button">画像をコピー</button>
       <button id="btnSave" class="btn primary" type="button">PowerPoint で保存<span class="key">Ctrl+S</span></button>
     </div>
@@ -1242,12 +1245,14 @@ function insertLine(text, selFrom, selLen) {
   else { typeAt(e, e, "\n" + text); start = e + 1; }
   ta.setSelectionRange(start + selFrom, start + selFrom + selLen);
   update();
+  commit();
 }
 function appendLine(text, selFrom, selLen) {
   const [, e] = lineRange();
   typeAt(e, e, text);
   ta.setSelectionRange(e + selFrom, e + selFrom + selLen);
   update();
+  commit();
 }
 const INSERTS = {
   start: () => insertLine("開始", 0, 2),
@@ -1268,20 +1273,26 @@ $("sample").addEventListener("change", e => {
   const k = e.target.value;
   e.target.value = "";
   if (!SAMPLES[k]) return;
-  const prev = ta.value;
-  const prevOffsets = offsets, prevRewires = rewires;
+  commit();
   ta.value = SAMPLES[k];
   offsets = {};
   rewires = {};
   if (k === "word") { $("optSize").value = "a4p"; $("optStyle").value = "gyomu"; $("optNum").value = "auto"; }
   update();
-  toast("サンプルを入れました。", "元に戻す", () => { ta.value = prev; offsets = prevOffsets; rewires = prevRewires; update(); });
+  commit();
+  toast("サンプルを入れました。", "元に戻す", undo);
 });
 
-ta.addEventListener("input", update);
+// 文字の入力は、手を止めたところで 1 回分として記録する
+let typingTimer = 0;
+ta.addEventListener("input", () => { update(); clearTimeout(typingTimer); typingTimer = setTimeout(commit, 700); });
 ta.addEventListener("scroll", () => { gutter.scrollTop = ta.scrollTop; });
 ["keyup", "click", "focus", "blur", "select"].forEach(ev => ta.addEventListener(ev, markCurrent));
-optIds.forEach(id => $(id).addEventListener(id.startsWith("opt") && $(id).tagName === "SELECT" ? "change" : "input", update));
+optIds.forEach(id => {
+  const sel = $(id).tagName === "SELECT";
+  $(id).addEventListener(sel ? "change" : "input", () => { update(); if (sel) commit(); });
+  if (!sel) $(id).addEventListener("change", commit);
+});
 
 function selectLine(line) {
   const lines = ta.value.split("\n");
@@ -1344,10 +1355,8 @@ function finishEndDrag() {
   const prev = rewires[d.ln.key];
   rewires[d.ln.key] = Object.assign({}, prev, { [d.end]: n.key });
   update();
-  toast(`矢印の${d.end === "b" ? "行き先" : "出どころ"}を「${n.label}」にしました。`, "取り消す", () => {
-    if (prev) rewires[d.ln.key] = prev; else delete rewires[d.ln.key];
-    update();
-  });
+  commit();
+  toast(`矢印の${d.end === "b" ? "行き先" : "出どころ"}を「${n.label}」にしました。`, "元に戻す", undo);
 }
 
 // 一番近い矢印・図形のふちの上の点
@@ -1399,24 +1408,82 @@ window.addEventListener("pointerup", e => {
   const d = drag;
   drag = null;
   paper.classList.remove("dragging");
-  if (!d.moved && d.line >= 0) selectLine(d.line);
+  if (d.moved) commit();
+  else if (d.line >= 0) selectLine(d.line);
 });
 $("btnReset").addEventListener("click", () => {
-  const prev = offsets, prevR = rewires;
   offsets = {};
   rewires = {};
   update();
-  toast("配置と矢印の付け替えを元に戻しました。", "取り消す", () => { offsets = prev; rewires = prevR; update(); });
+  commit();
+  toast("配置と矢印の付け替えを元に戻しました。", "元に戻す", undo);
 });
 
 $("btnSave").addEventListener("click", savePptx);
 $("btnCopy").addEventListener("click", copyImage);
+// ---------- 元に戻す・やり直す ----------
+// 文章・設定・動かした位置・付け替えた矢印をまとめて 1 回分として記録する（最大 100 回）
+const past = [], future = [];
+let current = "";
+function snapshot() {
+  return JSON.stringify({ src: ta.value, offsets, rewires, opts: optIds.map(id => $(id).value) });
+}
+function refreshUndo() {
+  $("btnUndo").disabled = !past.length && snapshot() === current;
+  $("btnRedo").disabled = !future.length;
+}
+function commit() {
+  clearTimeout(typingTimer);
+  const now = snapshot();
+  if (now !== current) {
+    past.push(current);
+    if (past.length > 100) past.shift();
+    future.length = 0;
+    current = now;
+  }
+  refreshUndo();
+}
+function restore(snap) {
+  const o = JSON.parse(snap);
+  ta.value = o.src;
+  offsets = o.offsets;
+  rewires = o.rewires;
+  optIds.forEach((id, i) => { $(id).value = o.opts[i]; });
+  current = snap;
+  update();
+  refreshUndo();
+}
+function undo() {
+  commit();
+  if (!past.length) return;
+  future.push(current);
+  restore(past.pop());
+  toast("1 つ前に戻しました。", "やり直す", redo);
+}
+function redo() {
+  if (!future.length) return;
+  past.push(current);
+  restore(future.pop());
+  toast("やり直しました。", "元に戻す", undo);
+}
+$("btnUndo").addEventListener("click", undo);
+$("btnRedo").addEventListener("click", redo);
+
 document.addEventListener("keydown", e => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); savePptx(); }
+  const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+  if (mod && k === "s") { e.preventDefault(); savePptx(); return; }
+  // 文字を入力している欄の中では、その欄の Ctrl+Z を使う
+  const inField = /^(TEXTAREA|INPUT|SELECT)$/.test(document.activeElement.tagName);
+  if (mod && !inField && (k === "z" || k === "y")) {
+    e.preventDefault();
+    if (k === "y" || e.shiftKey) redo(); else undo();
+  }
 });
 
 load();
 update();
+current = snapshot();
+refreshUndo();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(update);
 </script>
 
