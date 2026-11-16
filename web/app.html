@@ -262,7 +262,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       </div>
       <div class="stats">
         <span id="stats"></span>
-        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すとつなぎ先が変わり、何もない所で離すとそこまで伸びます。箱を動かすと上下の箱や線にそろって補助線が出ます。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりできます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
+        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すとつなぎ先が変わり、何もない所で離すとそこまで伸びます。箱を動かすと線の高さにそろって補助線が出ます。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりできます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
       </div>
     </section>
   </main>
@@ -1580,16 +1580,11 @@ function finishEndDrag() {
 }
 
 // 動かす箱の元の位置と、そろえる相手
-//   縦の補助線：上下にある箱の中心・左右のふち
-//   横の補助線：線の横向きの部分だけ（横に並ぶ箱にはそろえない）
+//   横の補助線：線の横向きの部分だけ（縦の補正はしない）
 let dragGuides = null;
 function boxInfo(n) {
   const off = offsets[n.key] || [0, 0];
   const xs = [], ys = [];
-  for (const m of state.L.nodes.concat(state.L.notes)) {
-    if (!isShape(m) || m.key === n.key) continue;
-    xs.push(m.x, m.x - m.w / 2, m.x + m.w / 2);
-  }
   const idx = state.L.nodes.indexOf(n);
   for (const ln of state.L.lines) {
     if (ln.a === idx || ln.b === idx || ln.b === n || ln.owner === n) continue;   // 自分につながる線は一緒に動くので除く
@@ -1645,7 +1640,7 @@ window.addEventListener("pointermove", e => {
   } else if (drag.wire && !["v3", "h3", "j4"].includes(drag.route)) {
     return;   // まっすぐな線は動かさない
   } else if (drag.box) {
-    // 箱はほかの箱の中心・ふちにそろうと吸い付き、補助線を出す
+    // 箱は線の横向きの部分の高さにそろうと吸い付き、補助線を出す
     const b = drag.box, k = paper.querySelector("svg").getScreenCTM().a, th = 8 / k;
     let ox = drag.base[0] + dx, oy = drag.base[1] + dy;
     const cx = b.x0 + ox, cy = b.y0 + oy;
