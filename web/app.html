@@ -261,7 +261,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       </div>
       <div class="stats">
         <span id="stats"></span>
-        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すとつなぎ先が変わり、何もない所で離すとそこまで伸びます。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりできます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
+        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すとつなぎ先が変わり、何もない所で離すとそこまで伸びます。箱を動かすとほかの箱にそろって補助線が出ます。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりできます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
       </div>
     </section>
   </main>
@@ -938,6 +938,11 @@ function svgOf(L, st, forImage) {
       out.push(`<circle class="end" data-w="${i}" data-end="${end}" cx="${f1(p[0])}" cy="${f1(p[1])}" r="5" fill="#E0752D" fill-opacity="${free ? 0.3 : 0}"/>`);
     }
   });
+  // 箱を動かしている間の補助線
+  if (!forImage && dragGuides) {
+    if (dragGuides.x !== null) out.push(`<line x1="${f1(dragGuides.x)}" y1="0" x2="${f1(dragGuides.x)}" y2="${L.H}" stroke="#1D6A84" stroke-width="0.8" stroke-dasharray="3 3" pointer-events="none"/>`);
+    if (dragGuides.y !== null) out.push(`<line x1="0" y1="${f1(dragGuides.y)}" x2="${L.W}" y2="${f1(dragGuides.y)}" stroke="#1D6A84" stroke-width="0.8" stroke-dasharray="3 3" pointer-events="none"/>`);
+  }
   L.dots.forEach((d, i) => out.push(`<g class="dot" data-dot="${i}"><circle cx="${f1(d.x)}" cy="${f1(d.y)}" r="${f1(Math.max(7, L.dotR * 2.5))}" fill="#000000" fill-opacity="0"/><circle cx="${f1(d.x)}" cy="${f1(d.y)}" r="${f1(L.dotR)}" fill="${c(st.arrow)}"/></g>`));
   out.push(`</svg>`);
   return out.join("");
@@ -1572,6 +1577,19 @@ function finishEndDrag() {
   toast(`矢印の${d.end === "b" ? "行き先" : "出どころ"}を「${n.label}」にしました。`, "元に戻す", undo);
 }
 
+// 動かす箱の元の位置と、そろえる相手（ほかの箱の中心・ふち）
+let dragGuides = null;
+function boxInfo(n) {
+  const off = offsets[n.key] || [0, 0];
+  const xs = [], ys = [];
+  for (const m of state.L.nodes.concat(state.L.notes)) {
+    if (!isShape(m) || m.key === n.key) continue;
+    xs.push(m.x, m.x - m.w / 2, m.x + m.w / 2);
+    ys.push(m.y, topOf(m), bottomOf(m));
+  }
+  return { x0: n.x - off[0], y0: n.y - off[1], w: n.w, h: n.h, xs, ys };
+}
+
 // 一番近い矢印・図形のふちの上の点
 function snapPoint(p, segs) {
   let best = null, bd = Infinity;
@@ -1597,6 +1615,7 @@ paper.addEventListener("pointerdown", e => {
     key: n.key, line: el.dataset.line !== undefined ? +el.dataset.line : -1, start: svgPoint(e),
     base: (offsets[n.key] || [0, 0]).slice(), moved: false, dot: dotEl ? n : null, route: el === wireEl ? n.route : null,
     wire: el === wireEl, x: e.clientX, y: e.clientY,
+    box: !dotEl && el !== wireEl ? boxInfo(n) : null,
   };
   e.preventDefault();
 });
@@ -1614,6 +1633,24 @@ window.addEventListener("pointermove", e => {
     offsets[drag.key] = [q[0] - d.x0, q[1] - d.y0];
   } else if (drag.wire && !["v3", "h3", "j4"].includes(drag.route)) {
     return;   // まっすぐな線は動かさない
+  } else if (drag.box) {
+    // 箱はほかの箱の中心・ふちにそろうと吸い付き、補助線を出す
+    const b = drag.box, k = paper.querySelector("svg").getScreenCTM().a, th = 8 / k;
+    let ox = drag.base[0] + dx, oy = drag.base[1] + dy;
+    const cx = b.x0 + ox, cy = b.y0 + oy;
+    const fit = (mine, others) => {
+      let best = null;
+      for (const m of mine) for (const o of others) {
+        const dd = o - m;
+        if (Math.abs(dd) < th && (!best || Math.abs(dd) < Math.abs(best.d))) best = { d: dd, at: o };
+      }
+      return best;
+    };
+    const fx = fit([cx, cx - b.w / 2, cx + b.w / 2], b.xs), fy = fit([cy, cy - b.h / 2, cy + b.h / 2], b.ys);
+    if (fx) ox += fx.d;
+    if (fy) oy += fy.d;
+    dragGuides = { x: fx ? fx.at : null, y: fy ? fy.at : null };
+    offsets[drag.key] = [ox, oy];
   } else {
     // 線は曲がる向きにだけ動く
     offsets[drag.key] = [drag.base[0] + (drag.route === "v3" ? 0 : dx), drag.base[1] + (drag.route === "h3" ? 0 : dy)];
@@ -1627,6 +1664,7 @@ window.addEventListener("pointerup", e => {
   const d = drag;
   drag = null;
   paper.classList.remove("dragging");
+  if (dragGuides) { dragGuides = null; update(); }
   if (d.moved) commit();
   else if (d.wire) showLinePop(d.key, d.x, d.y);
   else if (d.line >= 0) selectLine(d.line);
