@@ -1,1 +1,3 @@
 *.bas -text
+*.pptm binary
+*.ppam binary

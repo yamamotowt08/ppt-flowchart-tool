@@ -13,6 +13,8 @@ Option Explicit
 '        → 入力欄が消えて、フローチャートが描かれます
 '   5. 直したいときは、何も選ばずに「フローチャート作成」を実行
 '        → 前回の文章が入った入力欄が戻るので、直して再実行
+'   ※ ツール付きのファイル（.pptm / .ppam）では、リボンの
+'      「フローチャート」タブのボタンから同じことができます
 '
 '  書き方
 '   開始 / 終了 など           → 角丸（開始・終了）
@@ -39,6 +41,26 @@ Private Const INPUT_NAME As String = "フローチャート入力欄"
 Private Const TAG_SRC As String = "FLOWCHART_SOURCE"
 Private Const PREFIX As String = "FC_"
 Private Const TITLE_TEXT As String = "フローチャート作成"
+
+' Office の定数（参照設定がなくても動くように数値で持つ）
+Private Const M_TRUE As Long = -1
+Private Const M_FALSE As Long = 0
+Private Const M_SHAPE_PROCESS As Long = 61
+Private Const M_SHAPE_DECISION As Long = 63
+Private Const M_SHAPE_TERMINATOR As Long = 69
+Private Const M_CONNECTOR_STRAIGHT As Long = 1
+Private Const M_ARROW_TRIANGLE As Long = 2
+Private Const M_LINE_DASH As Long = 4
+Private Const M_TEXT_HORIZONTAL As Long = 1
+Private Const M_ALIGN_LEFT As Long = 1
+Private Const M_ALIGN_CENTER As Long = 2
+Private Const M_ALIGN_RIGHT As Long = 3
+Private Const M_ANCHOR_TOP As Long = 1
+Private Const M_ANCHOR_MIDDLE As Long = 3
+Private Const M_AUTOSIZE_NONE As Long = 0
+Private Const M_AUTOSIZE_SHAPE_TO_TEXT As Long = 1
+Private Const M_AUTOSIZE_TEXT_TO_SHAPE As Long = 2
+Private Const M_PLACEHOLDER As Long = 14
 
 Private Const K_PROC As Long = 0
 Private Const K_TERM As Long = 1
@@ -150,6 +172,44 @@ Public Sub フローチャート削除()
     If DeleteFlowShapes(sld) = 0 Then
         MsgBox "このスライドには自動作成したフローチャートがありません。", vbInformation, TITLE_TEXT
     End If
+End Sub
+
+
+' 書き方の説明を表示する
+Public Sub フローチャートの書き方()
+    MsgBox "【使い方】" & vbCr & _
+           "1.［作成］→ スライドに黄色い入力欄が出ます" & vbCr & _
+           "2. 手順を 1 行に 1 つずつ書いて、もう一度［作成］" & vbCr & _
+           "3. 直すときは、何も選ばずに［作成］→ 入力欄が戻ります" & vbCr & vbCr & _
+           "【書き方】" & vbCr & _
+           "開始 / 終了　→ 角丸" & vbCr & _
+           "「？」で終わる行　→ ひし形（下へ「はい」）" & vbCr & _
+           "それ以外　→ 四角" & vbCr & _
+           "判断？ > 処理　→「いいえ」のとき右に処理" & vbCr & _
+           "判断？ > 処理 > #2　→ 処理のあと 2 番目の手順へ戻る" & vbCr & _
+           "判断？ > 終了　→「いいえ」のとき右に終了" & vbCr & _
+           "※ で始まる行　→ メモ（図に出ません）", vbInformation, TITLE_TEXT
+End Sub
+
+
+'============================================================
+'  リボン「フローチャート」タブのボタン
+'============================================================
+
+Public Sub FC_RibbonMake(control As Object)
+    フローチャート作成
+End Sub
+
+Public Sub FC_RibbonQuick(control As Object)
+    フローチャート作成_一行入力
+End Sub
+
+Public Sub FC_RibbonDelete(control As Object)
+    フローチャート削除
+End Sub
+
+Public Sub FC_RibbonHelp(control As Object)
+    フローチャートの書き方
 End Sub
 
 
@@ -437,45 +497,45 @@ Private Function AddFlowShape(sld As Slide, ByVal i As Long, ByVal fs As Single)
 
     Select Case nKind(i)
         Case K_TERM
-            t = msoShapeFlowchartTerminator
+            t = M_SHAPE_TERMINATOR
             fillC = RGB(226, 239, 218): lineC = RGB(84, 130, 53)
         Case K_DEC
-            t = msoShapeFlowchartDecision
+            t = M_SHAPE_DECISION
             fillC = RGB(255, 242, 204): lineC = RGB(191, 144, 0)
         Case Else
-            t = msoShapeFlowchartProcess
+            t = M_SHAPE_PROCESS
             fillC = RGB(222, 235, 247): lineC = RGB(46, 117, 182)
     End Select
 
     Set s = sld.Shapes.AddShape(t, nX(i) - nW(i) / 2, nY(i) - nH(i) / 2, nW(i), nH(i))
     NameShape s
-    s.Fill.Visible = msoTrue
+    s.Fill.Visible = M_TRUE
     s.Fill.Solid
     s.Fill.ForeColor.RGB = fillC
-    s.Line.Visible = msoTrue
+    s.Line.Visible = M_TRUE
     s.Line.ForeColor.RGB = lineC
     s.Line.Weight = 1.5
 
     On Error Resume Next
-    s.Shadow.Visible = msoFalse
+    s.Shadow.Visible = M_FALSE
     With s.TextFrame2
-        .WordWrap = msoTrue
-        .VerticalAnchor = msoAnchorMiddle
+        .WordWrap = M_TRUE
+        .VerticalAnchor = M_ANCHOR_MIDDLE
         If nKind(i) = K_DEC Then
             .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
         Else
             .MarginLeft = 3: .MarginRight = 3: .MarginTop = 1: .MarginBottom = 1
         End If
         .TextRange.Text = nText(i)
-        .TextRange.ParagraphFormat.Alignment = msoAlignCenter
+        .TextRange.ParagraphFormat.Alignment = M_ALIGN_CENTER
         If nKind(i) = K_DEC Then
             .TextRange.Font.Size = fs * 0.9
         Else
             .TextRange.Font.Size = fs
         End If
-        .TextRange.Font.Bold = msoFalse
+        .TextRange.Font.Bold = M_FALSE
         .TextRange.Font.Fill.ForeColor.RGB = RGB(38, 38, 38)
-        .AutoSize = msoAutoSizeTextToFitShape
+        .AutoSize = M_AUTOSIZE_TEXT_TO_SHAPE
     End With
     On Error GoTo 0
 
@@ -489,7 +549,7 @@ Private Sub AddConnectorLine(sld As Slide, ByVal a As Long, ByVal sideA As Long,
     Dim c As Shape, siteA As Long, siteB As Long
     siteA = SiteOf(sld, a, sideA)
     siteB = SiteOf(sld, b, sideB)
-    Set c = sld.Shapes.AddConnector(msoConnectorStraight, 0, 0, 10, 10)
+    Set c = sld.Shapes.AddConnector(M_CONNECTOR_STRAIGHT, 0, 0, 10, 10)
     NameShape c
     c.ConnectorFormat.BeginConnect nShp(a), siteA
     c.ConnectorFormat.EndConnect nShp(b), siteB
@@ -501,37 +561,37 @@ Private Sub AddPathLine(sld As Slide, pts() As Single)
     Dim s As Shape
     Set s = sld.Shapes.AddPolyline(pts)
     NameShape s
-    s.Fill.Visible = msoFalse
+    s.Fill.Visible = M_FALSE
     StyleLine s
 End Sub
 
 Private Sub StyleLine(s As Shape)
     With s.Line
-        .Visible = msoTrue
+        .Visible = M_TRUE
         .ForeColor.RGB = RGB(89, 89, 89)
         .Weight = 1.5
-        .EndArrowheadStyle = msoArrowheadTriangle
+        .EndArrowheadStyle = M_ARROW_TRIANGLE
     End With
 End Sub
 
 Private Sub AddLabel(sld As Slide, ByVal txt As String, ByVal x As Single, ByVal y As Single, _
                      ByVal w As Single, ByVal fs As Single, ByVal alignRight As Boolean)
     Dim s As Shape
-    Set s = sld.Shapes.AddTextbox(msoTextOrientationHorizontal, x, y, w, fs * 1.4)
+    Set s = sld.Shapes.AddTextbox(M_TEXT_HORIZONTAL, x, y, w, fs * 1.4)
     NameShape s
     On Error Resume Next
     With s.TextFrame2
-        .WordWrap = msoTrue
-        .AutoSize = msoAutoSizeNone
-        .VerticalAnchor = msoAnchorTop
+        .WordWrap = M_TRUE
+        .AutoSize = M_AUTOSIZE_NONE
+        .VerticalAnchor = M_ANCHOR_TOP
         .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
         .TextRange.Text = txt
         .TextRange.Font.Size = fs
         .TextRange.Font.Fill.ForeColor.RGB = RGB(89, 89, 89)
         If alignRight Then
-            .TextRange.ParagraphFormat.Alignment = msoAlignRight
+            .TextRange.ParagraphFormat.Alignment = M_ALIGN_RIGHT
         Else
-            .TextRange.ParagraphFormat.Alignment = msoAlignLeft
+            .TextRange.ParagraphFormat.Alignment = M_ALIGN_LEFT
         End If
     End With
     s.Height = fs * 1.4
@@ -568,7 +628,7 @@ Private Function FindSite(sld As Slide, shp As Shape, ByVal px As Single, ByVal 
     n = shp.ConnectionSiteCount
     If Err.Number <> 0 Or n < 1 Then Exit Function
 
-    Set tmp = sld.Shapes.AddConnector(msoConnectorStraight, px - 10, py - 10, px, py)
+    Set tmp = sld.Shapes.AddConnector(M_CONNECTOR_STRAIGHT, px - 10, py - 10, px, py)
     If tmp Is Nothing Then Exit Function
 
     best = -1
@@ -623,25 +683,25 @@ Private Sub CreateInputBox(sld As Slide, ByVal src As String)
     src = Replace(src, vbCrLf, vbCr)
     src = Replace(src, vbLf, vbCr)
 
-    Set s = sld.Shapes.AddTextbox(msoTextOrientationHorizontal, sw * 0.08, sh * 0.06, sw * 0.84, sh * 0.5)
+    Set s = sld.Shapes.AddTextbox(M_TEXT_HORIZONTAL, sw * 0.08, sh * 0.06, sw * 0.84, sh * 0.5)
     s.Name = INPUT_NAME
-    s.Fill.Visible = msoTrue
+    s.Fill.Visible = M_TRUE
     s.Fill.Solid
     s.Fill.ForeColor.RGB = RGB(255, 253, 231)
-    s.Line.Visible = msoTrue
+    s.Line.Visible = M_TRUE
     s.Line.ForeColor.RGB = RGB(237, 125, 49)
     s.Line.Weight = 2
-    s.Line.DashStyle = msoLineDash
+    s.Line.DashStyle = M_LINE_DASH
 
     On Error Resume Next
     With s.TextFrame2
-        .WordWrap = msoTrue
-        .AutoSize = msoAutoSizeShapeToFitText
+        .WordWrap = M_TRUE
+        .AutoSize = M_AUTOSIZE_SHAPE_TO_TEXT
         .MarginLeft = 10: .MarginRight = 10: .MarginTop = 8: .MarginBottom = 8
         .TextRange.Text = src
         .TextRange.Font.Size = 14
         .TextRange.Font.Fill.ForeColor.RGB = RGB(38, 38, 38)
-        .TextRange.ParagraphFormat.Alignment = msoAlignLeft
+        .TextRange.ParagraphFormat.Alignment = M_ALIGN_LEFT
         ' 説明の行（※）は灰色で小さく
         For p = 1 To .TextRange.Paragraphs.Count
             If IsCommentLine(CleanText(.TextRange.Paragraphs(p).Text)) Then
@@ -696,7 +756,7 @@ End Function
 Private Function IsTitleShape(s As Shape) As Boolean
     Dim pt As Long
     On Error Resume Next
-    If s.Type <> msoPlaceholder Then Exit Function
+    If s.Type <> M_PLACEHOLDER Then Exit Function
     pt = -1
     pt = s.PlaceholderFormat.Type
     IsTitleShape = (pt = ppPlaceholderTitle Or pt = ppPlaceholderCenterTitle Or pt = ppPlaceholderVerticalTitle)
