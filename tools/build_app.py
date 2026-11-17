@@ -37,6 +37,8 @@ run([sys.executable, 'tools/build_web.py'] + sys.argv[1:], ROOT)
 run(['dotnet', 'build', '-c', 'Release', '--nologo'], ROOT / 'app')
 
 shutil.copy2(EXE, ROOT / APP_NAME)
+# 配るのは EXE だけにする（HTML 版は tools/build_web.py でいつでも作り直せる）
+(ROOT / 'フローチャート作成ツール.html').unlink(missing_ok=True)
 if DIST.exists():
     shutil.rmtree(DIST)
 DIST.mkdir()
