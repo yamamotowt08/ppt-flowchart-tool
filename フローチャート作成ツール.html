@@ -1632,6 +1632,49 @@ function boxInfo(n) {
   return { x0: n.x - off[0], y0: n.y - off[1], w: n.w, h: n.h, xs, lineXs, ys: [] };
 }
 
+// 本線の箱をほかの箱の上・下へ動かしたら、手順の欄の行もその順番に並べ替える
+// （その手順の「・小項目」「@照査…」「< 並行」の行も一緒に動かす）。
+// 文章の順番と箱の順番がいつも同じになり、文字を足したときも手順の順番どおりに箱が並ぶ。
+function reorderByDrag(key) {
+  const { g, L, lineInfo } = state;
+  const node = L.nodes.find(n => n.key === key);
+  if (!node || node.side || node.sideLane || node.lane !== undefined || node.kind === "note") return false;
+  const ui = g.units.findIndex((u, i) => u.kind !== "block" && g.entry[i] === node.idx);
+  if (ui < 0) return false;
+  // 動かした箱より上にある手順の数 → 新しい順番
+  const yOf = i => L.nodes[g.entry[i]].y;
+  let to = 0;
+  g.units.forEach((u, i) => { if (i !== ui && yOf(i) < node.y) to++; });
+  if (to === ui) return false;
+
+  const lines = ta.value.split("\n");
+  const blockEnd = start => {
+    let e = start;
+    while (e + 1 < lines.length && lineInfo[e + 1] && ["sub", "memo", "side"].includes(lineInfo[e + 1].type)) e++;
+    return e;
+  };
+  const from = g.units[ui].line, fromEnd = blockEnd(from);
+  const others = g.units.filter((u, i) => i !== ui);
+  // 入れる場所：to 番目の手順の行の前（いちばん下なら最後の手順のかたまりの後ろ）
+  let at = to < others.length ? others[to].line : blockEnd(others[others.length - 1].line) + 1;
+  const moved = lines.slice(from, fromEnd + 1), movedIds = lineIds.slice(from, fromEnd + 1);
+  const restLines = lines.slice(0, from).concat(lines.slice(fromEnd + 1));
+  const restIds = lineIds.slice(0, from).concat(lineIds.slice(fromEnd + 1));
+  if (at > from) at -= moved.length;
+  const newLines = restLines.slice(0, at).concat(moved, restLines.slice(at));
+  lineIds = restIds.slice(0, at).concat(movedIds, restIds.slice(at));
+  prevLines = newLines;
+  ta.value = newLines.join("\n");
+  // 縦の位置は新しい順番の場所に任せる（横にずらした分は残す）
+  const off = offsets[key];
+  if (off) { if (Math.abs(off[0]) < 0.5) delete offsets[key]; else offsets[key] = [off[0], 0]; }
+  update();
+  commit();
+  const now = state.L.nodes.find(n => n.key === key);
+  toast(`「${now ? now.label : node.text}」に並べ替えました（手順の欄も同じ順番です）。`, "元に戻す", undo);
+  return true;
+}
+
 // 一番近い矢印・図形のふちの上の点
 function snapPoint(p, segs) {
   let best = null, bd = Infinity;
@@ -1709,6 +1752,7 @@ window.addEventListener("pointerup", e => {
   drag = null;
   paper.classList.remove("dragging");
   if (dragGuides) { dragGuides = null; update(); }
+  if (d.moved && !d.dot && !d.wire && d.box && reorderByDrag(d.key)) return;
   if (d.moved) commit();
   else if (d.wire) showLinePop(d.key, d.x, d.y);
   else if (d.line >= 0) selectLine(d.line);
