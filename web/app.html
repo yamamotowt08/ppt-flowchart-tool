@@ -222,12 +222,6 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
             <option value="mono">白黒（資料向け）</option>
           </select>
         </label>
-        <label>番号
-          <select id="optNum">
-            <option value="auto">付ける（(1) / ①）</option>
-            <option value="none">付けない</option>
-          </select>
-        </label>
         <label>形
           <select id="optShape">
             <option value="same">そろえる（すべて四角）</option>
@@ -1152,7 +1146,7 @@ function zipBytes(files) {
 // ---------- 画面 ----------
 const $ = id => document.getElementById(id);
 const ta = $("src"), gutter = $("gutter"), paper = $("paper"), msgsEl = $("msgs");
-const optIds = ["optSize", "optStyle", "optFont", "optShape", "optNum", "optTitle"];
+const optIds = ["optSize", "optStyle", "optFont", "optShape", "optTitle"];
 let state = null;
 let offsets = {};   // ドラッグで動かした量（図形ごと、pt）
 let rewires = {};   // 付け替えた矢印（矢印ごと、はし → 箱）
@@ -1162,7 +1156,7 @@ let selWire = null;    // 選んでいる線
 function options() {
   return {
     size: $("optSize").value, style: $("optStyle").value, font: $("optFont").value,
-    shape: $("optShape").value || "same", num: $("optNum").value !== "none", title: clean($("optTitle").value), offsets, rewires, lineStyles,
+    shape: $("optShape").value || "same", num: true, title: clean($("optTitle").value), offsets, rewires, lineStyles,
   };
 }
 
@@ -1249,7 +1243,6 @@ function load() {
   if (!o) { $("optSize").value = "a4p"; $("optStyle").value = "gyomu"; }
   if (!$("optSize").value) $("optSize").value = "w169";
   if (!$("optStyle").value) $("optStyle").value = "gyomu";
-  if (!$("optNum").value) $("optNum").value = "auto";
   if (!$("optFont").value) $("optFont").value = "meiryoui";
 }
 
@@ -1376,7 +1369,7 @@ $("sample").addEventListener("change", e => {
   ta.value = SAMPLES[k];
   offsets = {};
   rewires = {};
-  if (k === "word") { $("optSize").value = "a4p"; $("optStyle").value = "gyomu"; $("optNum").value = "auto"; }
+  if (k === "word") { $("optSize").value = "a4p"; $("optStyle").value = "gyomu"; }
   update();
   commit();
   toast("サンプルを入れました。", "元に戻す", undo);
