@@ -224,7 +224,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
         </label>
         <label>番号
           <select id="optNum">
-            <option value="auto">付ける（1. / (1) / ①）</option>
+            <option value="auto">付ける（(1) / ①）</option>
             <option value="none">付けない</option>
           </select>
         </label>
@@ -338,8 +338,8 @@ function parse(src, autoNum, ids) {
   const lines = src.replace(/\r\n?/g, "\n").split("\n");
   const units = [], sides = [], lineInfo = [];
   let block = null, side = null, lastMain = null, lastStep = null;
-  // 番号を自動で付けるときは、手で書いた番号を外しておく
-  const stepText = t => (autoNum ? clean(t.replace(NUM_RE, "")) : t);
+  // 手順（黄色い箱）には番号を付けない。手で書いた番号はそのまま出す
+  const stepText = t => t;
   const subText = t => (autoNum ? clean(t.replace(SUBNUM_RE, "").replace(NUM_RE, "")) : t);
 
   lines.forEach((ln, i) => {
@@ -558,7 +558,6 @@ function layout(g, o) {
   if (!g.M) return L;
 
   // 形と文字（番号）
-  let num = 0;
   g.nodes.forEach((n, idx) => { n.idx = idx; });
   for (const n of g.nodes) {
     if (!isShape(n)) continue;
@@ -688,11 +687,6 @@ function layout(g, o) {
     if (off) { n.x += off[0]; n.y += off[1]; L.moved++; }
   };
   g.nodes.filter(isShape).forEach(applyOffset);
-  // 番号は、置いてある位置の上から順に付ける（箱をずらすと付け直る）
-  if (o.num) {
-    const steps = g.nodes.filter(n => isShape(n) && n.kind === "proc" && !n.side);
-    for (const n of byPosition(steps)) n.label = `${++num}.${n.text}`;
-  }
   // 点（照査・打合せや並行作業が本線につく所）も動かせる。動かした分は点の位置そのもの
   const placeDot = (d, name) => {
     d.x0 = d.x; d.y0 = d.y;
