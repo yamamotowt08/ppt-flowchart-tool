@@ -711,14 +711,15 @@ function layout(g, o) {
   for (const grp of groups) {
     const n = nodeOf(grp.unit);
     let dot;
-    if (hasSubs(n) && grp.pos === 0) dot = { x: n.x + n.w / 2, y: n.head.y, onEdge: true };
+    if (hasSubs(n) && grp.pos === 0) dot = { x: n.x + n.w / 2, y: n.head.y, onEdge: true, owner: n.idx };
     else if (hasSubs(n) && grp.pos < n.subs.length) {
       const a = n.subBoxes[grp.pos - 1], b = n.subBoxes[grp.pos];
-      dot = { x: n.x, y: (bottomOf(a) + topOf(b)) / 2 };
+      dot = { x: n.x, y: (bottomOf(a) + topOf(b)) / 2, owner: n.idx };
     } else {
       const next = grp.unit + 1 < g.M ? nodeOf(grp.unit + 1) : null;
       const b = g.nodes[g.exit[grp.unit]];
       dot = next ? { x: b.x, y: (bottomOf(b) + topOf(next)) / 2 } : { x: b.x, y: bottomOf(b) + (A.gap / 2) * s };
+      dot.owner = b.idx;   // PowerPoint では、この箱と点・照査打合せを 1 つにまとめる
     }
     grp.dot = dot;
   }
@@ -840,12 +841,12 @@ function layout(g, o) {
   g.sideLanes.forEach(sl => {
     const first = g.nodes[sl.ids[0]], last = g.nodes[sl.ids[sl.ids.length - 1]];
     const P = nodeOf(sl.from);
-    const d1 = placeDot({ x: P.x, y: topOf(P) - (A.gap / 2) * s }, `<${first.uid}`);
+    const d1 = placeDot({ x: P.x, y: topOf(P) - (A.gap / 2) * s, owner: P.idx }, `<${first.uid}`);
     L.dots.push(d1);
     L.lines.push({ route: "h2", S: [d1.x, d1.y], E: [first.x, topOf(first)], type: "branch", a: -1, b: first.idx, dot: d1, dashed: true, arrow: false });
     if (sl.to >= 0 && !last.isEnd) {
       const T = nodeOf(sl.to);
-      const d2 = placeDot({ x: T.x, y: topOf(T) - (A.gap / 2) * s }, `>${last.uid}`);
+      const d2 = placeDot({ x: T.x, y: topOf(T) - (A.gap / 2) * s, owner: T.idx }, `>${last.uid}`);
       L.dots.push(d2);
       L.lines.push({ route: "v2", S: [last.x, bottomOf(last)], E: [d2.x, d2.y], type: "rejoin", a: last.idx, b: -1, dot: d2, dashed: true, arrow: false });
     }
@@ -1036,7 +1037,24 @@ function slideXml(L, st, font) {
       `<a:noFill/>${lnXml(st.arrow, ln.dashed ? Math.max(0.75, st.lineW * 0.75) : st.lineW, ln.arrow, ln.dashed)}</p:spPr></p:cxnSp>`;
   };
 
-  const ids = [];
+  const ids = [], dotIds = [], noteIds = [];
+  const dotXml = (d, di) => {
+    const r = L.dotR;
+    dotIds[di] = id;
+    return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="点 ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(d.x - r, d.y - r, r * 2, r * 2)}` +
+      `<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${st.arrow}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr></p:sp>`;
+  };
+  const noteXml = (nt, ni) => { noteIds[ni] = id; return shapeXml(nt, "照査・打合せ", "rect", st.notes[nt.cat], st.proc[1]); };
+  const dotOf = ln => [dotIds[L.dots.indexOf(ln.dot)], 0];
+  const noteLineXml = ln => connXml(ln, dotOf(ln), [noteIds[L.notes.indexOf(ln.b)], 1]);
+  const done = new Set();   // もう書いた点・線
+
+  // 箱ごとに、その箱に付いている点と照査・打合せ（と破線）を集める
+  const own = {};
+  L.dots.forEach((d, di) => {
+    if (d.owner !== undefined && L.nodes[d.owner] && isShape(L.nodes[d.owner])) (own[d.owner] = own[d.owner] || []).push(di);
+  });
+
   L.nodes.forEach((n, i) => {
     if (n.kind === "bar") {
       const W = n.x2 - n.x1;
@@ -1046,42 +1064,63 @@ function slideXml(L, st, font) {
         `</a:path></a:pathLst></a:custGeom><a:noFill/>${lnXml(st.arrow, st.lineW, false, false)}</p:spPr></p:sp>`);
       return;
     }
+    let xml;
     if (!hasSubs(n)) {
       ids[i] = id;
       const [fill, line] = st[n.look];
-      out.push(shapeXml(n, kindName[n.kind], geom[n.look], fill, line));
-      return;
+      xml = shapeXml(n, kindName[n.kind], geom[n.look], fill, line);
+    } else {
+      // 小項目つき：外枠・見出し・小項目・中の矢印を 1 つのグループにする（まとめて動く）
+      const gid = id++;
+      ids[i] = id;
+      const parts = [shapeXml(Object.assign({}, n, { label: undefined }), "外枠", "rect", st.body, st.proc[1])];
+      parts.push(shapeXml(n.head, "見出し", "rect", st.head, st.proc[1]));
+      const subIds = n.subBoxes.map(b => { const sid = id; parts.push(shapeXml(b, "小項目", "rect", st.sub[0], st.sub[1], "l")); return sid; });
+      for (const ln of L.lines) if (ln.type === "sub" && ln.owner === n) parts.push(connXml(ln, [subIds[ln.a], 2], [subIds[ln.b], 0]));
+      const off = `<a:off x="${EMU(n.x - n.w / 2)}" y="${EMU(topOf(n))}"/><a:ext cx="${EMU(n.w)}" cy="${EMU(n.h)}"/>`;
+      xml = `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${gid}" name="${esc(n.label)}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+        `<p:grpSpPr><a:xfrm>${off}${off.replace("a:off", "a:chOff").replace("a:ext", "a:chExt")}</a:xfrm></p:grpSpPr>${parts.join("")}</p:grpSp>`;
     }
-    // 小項目つき：外枠・見出し・小項目・中の矢印を 1 つのグループにする（まとめて動く）
+    if (!own[i]) { out.push(xml); return; }
+
+    // 箱と、その箱に付いている点・照査打合せを 1 つにまとめる（PowerPoint で箱を動かすと一緒に動く）
+    const parts = [xml];
+    let x1 = n.x - n.w / 2, y1 = topOf(n), x2 = n.x + n.w / 2, y2 = bottomOf(n);
+    const grow = (ax, ay, bx, by) => { x1 = Math.min(x1, ax); y1 = Math.min(y1, ay); x2 = Math.max(x2, bx); y2 = Math.max(y2, by); };
+    for (const di of own[i]) {
+      const d = L.dots[di], r = L.dotR;
+      parts.push(dotXml(d, di));
+      grow(d.x - r, d.y - r, d.x + r, d.y + r);
+      const nls = L.lines.filter(l => l.type === "note" && l.dot === d);
+      for (const l of nls) {
+        const nt = l.b, ni = L.notes.indexOf(nt);
+        if (noteIds[ni] === undefined) { parts.push(noteXml(nt, ni)); grow(nt.x - nt.w / 2, topOf(nt), nt.x + nt.w / 2, bottomOf(nt)); }
+      }
+      for (const l of nls) {
+        parts.push(noteLineXml(l));
+        done.add(l);
+        for (const q of l.pts) grow(q[0], q[1], q[0], q[1]);
+      }
+    }
     const gid = id++;
-    ids[i] = id;
-    const parts = [shapeXml(Object.assign({}, n, { label: undefined }), "外枠", "rect", st.body, st.proc[1])];
-    parts.push(shapeXml(n.head, "見出し", "rect", st.head, st.proc[1]));
-    const subIds = n.subBoxes.map(b => { const sid = id; parts.push(shapeXml(b, "小項目", "rect", st.sub[0], st.sub[1], "l")); return sid; });
-    for (const ln of L.lines) if (ln.type === "sub" && ln.owner === n) parts.push(connXml(ln, [subIds[ln.a], 2], [subIds[ln.b], 0]));
-    const off = `<a:off x="${EMU(n.x - n.w / 2)}" y="${EMU(topOf(n))}"/><a:ext cx="${EMU(n.w)}" cy="${EMU(n.h)}"/>`;
-    out.push(`<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${gid}" name="${esc(n.label)}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+    const off = `<a:off x="${EMU(x1)}" y="${EMU(y1)}"/><a:ext cx="${EMU(x2 - x1)}" cy="${EMU(y2 - y1)}"/>`;
+    out.push(`<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${gid}" name="${esc(n.label)}（照査・打合せ付き）"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
       `<p:grpSpPr><a:xfrm>${off}${off.replace("a:off", "a:chOff").replace("a:ext", "a:chExt")}</a:xfrm></p:grpSpPr>${parts.join("")}</p:grpSp>`);
   });
-  const noteIds = L.notes.map(n => { const nid = id; out.push(shapeXml(n, "照査・打合せ", "rect", st.notes[n.cat], st.proc[1])); return nid; });
-  // 点（線がくっつくので、点を動かすと破線もついてくる）
-  const dotIds = L.dots.map(d => {
-    const r = L.dotR, did = id;
-    out.push(`<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="点 ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(d.x - r, d.y - r, r * 2, r * 2)}` +
-      `<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${st.arrow}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr></p:sp>`);
-    return did;
-  });
-  const dotOf = ln => [dotIds[L.dots.indexOf(ln.dot)], 0];
+  // どの箱にも付いていない点・照査打合せ
+  L.dots.forEach((d, di) => { if (dotIds[di] === undefined) out.push(dotXml(d, di)); });
+  L.notes.forEach((nt, ni) => { if (noteIds[ni] === undefined) out.push(noteXml(nt, ni)); });
 
   const SITES = { down: [2, 0], merge: [2, 0], right: [3, 1], jump: [3, 0] };
   for (const ln of L.lines) {
-    if (ln.type === "sub") continue;
-    if (ln.type === "note") { out.push(connXml(ln, dotOf(ln), [noteIds[L.notes.indexOf(ln.b)], 1])); continue; }
+    if (ln.type === "sub" || done.has(ln)) continue;
+    if (ln.type === "note") { out.push(noteLineXml(ln)); continue; }
     if (ln.type === "branch") { out.push(connXml(ln, dotOf(ln), [ids[ln.b], 0])); continue; }
     if (ln.type === "rejoin") { out.push(connXml(ln, [ids[ln.a], 2], dotOf(ln))); continue; }
     const [sa, sb] = ln.sites || SITES[ln.type];
     const glue = (v, site) => (v >= 0 && L.nodes[v].kind !== "bar" ? [ids[v], site] : null);
-    out.push(ln.shifted ? connXml(ln, null, null) : connXml(ln, glue(ln.a, sa), glue(ln.b, sb)));
+    // 横にずらした矢印も箱にくっつけておく（PowerPoint で箱を動かしても置いていかれない）
+    out.push(connXml(ln, glue(ln.a, sa), glue(ln.b, sb)));
   }
   if (L.title) {
     const t = L.title;
