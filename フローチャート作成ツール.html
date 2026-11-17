@@ -269,7 +269,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       </div>
       <div class="stats">
         <span id="stats"></span>
-        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すとつなぎ先が変わり、何もない所で離すとそこまで伸びます。箱を動かすと上下の箱や縦の線にそろって補助線が出ます。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりできます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
+        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すとつなぎ先が変わり、何もない所で離すとそこまで伸びます。箱を動かすと上下の箱や縦の線にそろって補助線が出ます。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりでき、まっすぐな矢印はドラッグで横にずらせます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
       </div>
     </section>
   </main>
@@ -879,6 +879,26 @@ function layout(g, o) {
       else if (ln.route === "h3") ln.mx += off[0];
       else { ln.lx += off[0]; ln.gy += off[1]; }
       L.moved++;
+    } else if (off && ln.route === "straight" && ln.edge) {
+      // まっすぐな矢印は、傾かないようにそのまま横（横向きの矢印は縦）にずらす。
+      // はしは両方の箱のふちの上に残す（はみ出す分は箱の中に収める）
+      const vert = Math.abs(ln.S[0] - ln.E[0]) < 0.5;
+      const span = v => {
+        if (v < 0) return null;
+        const n = g.nodes[v];
+        if (n.kind === "bar") return vert ? [n.x1, n.x2] : [topOf(n), bottomOf(n)];
+        return vert ? [n.x - n.w / 2, n.x + n.w / 2] : [topOf(n), bottomOf(n)];
+      };
+      const ra = span(ln.a), rb = span(ln.b);
+      let lo = -Infinity, hi = Infinity;
+      for (const r of [ra, rb]) if (r) { lo = Math.max(lo, r[0] + 2); hi = Math.min(hi, r[1] - 2); }
+      const base = vert ? ln.S[0] : ln.S[1];
+      const to = lo <= hi ? Math.min(hi, Math.max(lo, base + (vert ? off[0] : off[1]))) : base;
+      if (Math.abs(to - base) > 0.1) {
+        if (vert) { ln.S = [to, ln.S[1]]; ln.E = [to, ln.E[1]]; } else { ln.S = [ln.S[0], to]; ln.E = [ln.E[0], to]; }
+        ln.shifted = true;
+        L.moved++;
+      }
     }
     const ls = ln.key && o.lineStyles[ln.key];
     if (ls === "none") ln.hidden = true;
@@ -924,6 +944,7 @@ function svgOf(L, st, forImage) {
     out.push(`<text class="empty" x="${L.W / 2}" y="${L.H / 2}" text-anchor="middle">左の「手順」に 1 行ずつ書くと、ここに図ができます</text>`);
   }
   const WIRE_CURSOR = { v3: "ns-resize", h3: "ew-resize", j4: "move" };
+  const cursorOf = ln => WIRE_CURSOR[ln.route] || (ln.edge ? (Math.abs(ln.S[0] - ln.E[0]) < 0.5 ? "ew-resize" : "ns-resize") : "pointer");
   L.lines.forEach((ln, i) => {
     if (ln.type === "sub") return;
     const d = `M${ln.pts.map(p => f1(p[0]) + "," + f1(p[1])).join(" L")}`;
@@ -932,7 +953,7 @@ function svgOf(L, st, forImage) {
     // 選んでいる線は色を付けて目立たせる
     if (ln.key && ln.key === selWire) out.push(`<path d="${d}" fill="none" stroke="#E0752D" stroke-opacity=".45" stroke-width="5" pointer-events="none"/>`);
     // つかみやすいように、見えない太い線を重ねる（クリックで線の種類、曲がった線はドラッグで移動）
-    out.push(`<path class="wire" data-w="${i}" d="${d}" fill="none" stroke="#1D6A84" stroke-opacity="0" stroke-width="9" style="cursor:${WIRE_CURSOR[ln.route] || "pointer"}"/>`);
+    out.push(`<path class="wire" data-w="${i}" d="${d}" fill="none" stroke="#1D6A84" stroke-opacity="0" stroke-width="9" style="cursor:${cursorOf(ln)}"/>`);
   });
   L.nodes.forEach((n, i) => {
     if (n.kind === "bar") {
@@ -1079,7 +1100,7 @@ function slideXml(L, st, font) {
     if (ln.type === "rejoin") { out.push(connXml(ln, [ids[ln.a], 2], dotOf(ln))); continue; }
     const [sa, sb] = ln.sites || SITES[ln.type];
     const glue = (v, site) => (v >= 0 && L.nodes[v].kind !== "bar" ? [ids[v], site] : null);
-    out.push(connXml(ln, glue(ln.a, sa), glue(ln.b, sb)));
+    out.push(ln.shifted ? connXml(ln, null, null) : connXml(ln, glue(ln.a, sa), glue(ln.b, sb)));
   }
   if (L.title) {
     const t = L.title;
@@ -1717,7 +1738,14 @@ window.addEventListener("pointermove", e => {
     const d = drag.dot, q = snapPoint([d.x0 + drag.base[0] + dx, d.y0 + drag.base[1] + dy], state.L.snap);
     offsets[drag.key] = [q[0] - d.x0, q[1] - d.y0];
   } else if (drag.wire && !["v3", "h3", "j4"].includes(drag.route)) {
-    return;   // まっすぐな線は動かさない
+    // まっすぐな矢印は、傾かないよう片方の向きだけに動かす。元の位置の近くでは元に戻る
+    const ln = state.L.lines.find(l => l.key === drag.key);
+    if (!ln || !ln.edge) return;
+    const vert = drag.vert ?? (drag.vert = Math.abs(ln.S[0] - ln.E[0]) < 0.5);
+    const k = paper.querySelector("svg").getScreenCTM().a;
+    let v = (vert ? drag.base[0] + dx : drag.base[1] + dy);
+    if (Math.abs(v) < 5 / k) v = 0;
+    offsets[drag.key] = vert ? [v, 0] : [0, v];
   } else if (drag.box) {
     // 箱は上下の箱の中心・ふちや、縦に走る線にそろうと吸い付き、補助線を出す
     const b = drag.box, k = paper.querySelector("svg").getScreenCTM().a, th = 8 / k;
