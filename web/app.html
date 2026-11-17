@@ -536,6 +536,19 @@ const isShape = n => n.kind !== "bar";
 const topOf = n => n.y - n.h / 2;
 const bottomOf = n => n.y + n.h / 2;
 const hasSubs = n => !!(n.subs && n.subs.length);
+// 上から順（ほぼ同じ高さのものは、書いた順）に並べる
+function byPosition(items) {
+  const sorted = items.slice().sort((a, b) => topOf(a) - topOf(b));
+  const out = [];
+  for (let i = 0; i < sorted.length;) {
+    const tol = Math.max(3, sorted[i].h * 0.3);
+    let j = i + 1;
+    while (j < sorted.length && topOf(sorted[j]) - topOf(sorted[i]) < tol) j++;
+    out.push(...sorted.slice(i, j).sort((a, b) => a.line - b.line || (a.idx ?? 0) - (b.idx ?? 0)));
+    i = j;
+  }
+  return out;
+}
 const CIRCLED = k => (k >= 1 && k <= 20 ? String.fromCharCode(0x2460 + k - 1) : `(${k})`);
 
 function layout(g, o) {
@@ -551,10 +564,6 @@ function layout(g, o) {
     if (!isShape(n)) continue;
     n.look = o.shape === "kind" ? n.kind : "proc";
     n.label = n.text;
-  }
-  if (o.num) {
-    const steps = g.nodes.filter(n => isShape(n) && n.kind === "proc" && !n.side).sort((a, b) => a.line - b.line || a.idx - b.idx);
-    for (const n of steps) n.label = `${++num}.${n.text}`;
   }
 
   // 縦の大きさ（割合）
@@ -679,6 +688,11 @@ function layout(g, o) {
     if (off) { n.x += off[0]; n.y += off[1]; L.moved++; }
   };
   g.nodes.filter(isShape).forEach(applyOffset);
+  // 番号は、置いてある位置の上から順に付ける（箱をずらすと付け直る）
+  if (o.num) {
+    const steps = g.nodes.filter(n => isShape(n) && n.kind === "proc" && !n.side);
+    for (const n of byPosition(steps)) n.label = `${++num}.${n.text}`;
+  }
   // 点（照査・打合せや並行作業が本線につく所）も動かせる。動かした分は点の位置そのもの
   const placeDot = (d, name) => {
     d.x0 = d.x; d.y0 = d.y;
@@ -737,6 +751,16 @@ function layout(g, o) {
       const S = [grp.dot.x, grp.dot.y], E = [it.x - it.w / 2, it.y];
       const ln = Math.abs(S[1] - E[1]) < 0.5 ? { route: "straight" } : { route: "h3", mx: E[0] - noteW * 0.35 };
       L.lines.push(Object.assign(ln, { S, E, type: "note", a: -1, b: it, dot: grp.dot, dashed: true, arrow: false }));
+    }
+  }
+
+  // 照査①・打合せ①… も、位置の上から順に付け直す
+  if (o.num) {
+    const k = {};
+    for (const it of byPosition(L.notes)) {
+      if (/[①-⑳]$/.test(it.text)) continue;
+      k[it.text] = (k[it.text] || 0) + 1;
+      it.label = it.text + CIRCLED(k[it.text]);
     }
   }
 
