@@ -772,8 +772,10 @@ function layout(g, o) {
     const lo = Math.max(a1, b1) + 3, hi = Math.min(a2, b2) - 3;
     return lo <= hi ? Math.min(hi, Math.max(lo, mid)) : null;
   };
-  const straightX = (a, b) => (Math.abs(a.x - b.x) < 0.5 ? null : overlap(a.x - a.w / 2, a.x + a.w / 2, b.x - b.w / 2, b.x + b.w / 2, (a.x + b.x) / 2));
-  const straightY = (a, b) => (Math.abs(a.y - b.y) < 0.5 ? null : overlap(topOf(a), bottomOf(a), topOf(b), bottomOf(b), (a.y + b.y) / 2));
+  // 線は動かした箱の真ん中についていく（相手の箱のふちの上をすべる）
+  const follow = (a, b, va, vb) => (moved(a) && !moved(b) ? va : moved(b) && !moved(a) ? vb : (va + vb) / 2);
+  const straightX = (a, b) => (Math.abs(a.x - b.x) < 0.5 ? null : overlap(a.x - a.w / 2, a.x + a.w / 2, b.x - b.w / 2, b.x + b.w / 2, follow(a, b, a.x, b.x)));
+  const straightY = (a, b) => (Math.abs(a.y - b.y) < 0.5 ? null : overlap(topOf(a), bottomOf(a), topOf(b), bottomOf(b), follow(a, b, a.y, b.y)));
   // 重ならないほど離れた箱どうしは、中心を結ぶ 1 本のまっすぐな線でつなぐ（折れ曲がらない）
   const clip = (n, tx, ty) => {
     const dx = tx - n.x, dy = ty - n.y, kx = n.w / 2 / Math.max(Math.abs(dx), 1e-9), ky = n.h / 2 / Math.max(Math.abs(dy), 1e-9);
@@ -1785,7 +1787,30 @@ function boxInfo(n) {
       if (Math.abs(p[0] - q[0]) < 0.5 && Math.abs(p[1] - q[1]) > 0.5) lineXs.push(p[0]);
     }
   }
-  return { x0: n.x - off[0], y0: n.y - off[1], w: n.w, h: n.h, xs, lineXs, ys: [] };
+  // 線がまっすぐなままでいられる範囲（箱の真ん中が、つながっている箱の幅・高さの中にある間）
+  let xLo = -Infinity, xHi = Infinity, yLo = -Infinity, yHi = Infinity;
+  for (const ln of state.L.lines) {
+    if (!ln.edge || !["down", "merge", "right"].includes(ln.type) || (ln.a !== idx && ln.b !== idx)) continue;
+    const m = state.L.nodes[ln.a === idx ? ln.b : ln.a];
+    if (!m || !isShape(m) || m.nx === undefined) continue;
+    if (ln.type === "right") {
+      if (Math.abs(n.ny - m.ny) >= (n.h + m.h) / 2 - 6) continue;   // もともと横にまっすぐではない
+      yLo = Math.max(yLo, topOf(m) + 3); yHi = Math.min(yHi, bottomOf(m) - 3);
+    } else {
+      if (Math.abs(n.nx - m.nx) >= (n.w + m.w) / 2 - 6) continue;   // もともと縦にまっすぐではない（判断の右から合流する線など）
+      xLo = Math.max(xLo, m.x - m.w / 2 + 3); xHi = Math.min(xHi, m.x + m.w / 2 - 3);
+    }
+  }
+  if (xLo > xHi) xLo = xHi = n.x;
+  if (yLo > yHi) yLo = yHi = n.y;
+  return { x0: n.x - off[0], y0: n.y - off[1], w: n.w, h: n.h, xs, lineXs, ys: [], xLo, xHi, yLo, yHi };
+}
+// 箱の位置（ずらした量）を、線がまっすぐなままの範囲に収める。
+// ただし pull より大きく引っぱったら止めない（別の列・本線などへ移すため）
+function keepStraight(b, ox, oy, pull) {
+  const cx = b.x0 + ox, cy = b.y0 + oy;
+  const fit = (v, lo, hi) => (v < lo ? (lo - v <= pull ? lo : v) : v > hi ? (v - hi <= pull ? hi : v) : v);
+  return [fit(cx, b.xLo, b.xHi) - b.x0, fit(cy, b.yLo, b.yHi) - b.y0];
 }
 
 // 本線の箱をほかの箱の上・下へ動かしたら、手順の欄の行もその順番に並べ替える
@@ -2243,6 +2268,7 @@ window.addEventListener("pointermove", e => {
     const fy = fit([cy], b.ys);
     if (fx) ox += fx.d;
     if (fy) oy += fy.d;
+    [ox, oy] = keepStraight(b, ox, oy, b.w * 0.9);
     dragGuides = { x: fx ? fx.at : null, y: fy ? fy.at : null };
     offsets[drag.key] = [ox, oy];
   } else {
@@ -2268,6 +2294,10 @@ window.addEventListener("pointerup", e => {
   if (d.moved && d.dot && dropDot(d.key)) return;
   if (d.moved && d.isNote && moveNoteByDrag(d.key)) return;
   if (d.moved && !d.dot && !d.wire && d.box && dropBox(d.key)) return;
+  if (d.moved && d.box && offsets[d.key]) {
+    const [ox, oy] = offsets[d.key], [nx, ny] = keepStraight(d.box, ox, oy, Infinity);
+    if (Math.abs(nx - ox) > 0.01 || Math.abs(ny - oy) > 0.01) { offsets[d.key] = [nx, ny]; update(); }
+  }
   if (d.moved) commit();
   else if (d.wire) showLinePop(d.key, d.x, d.y);
   else if (d.line >= 0) selectLine(d.line);
