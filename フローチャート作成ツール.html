@@ -167,6 +167,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
         <h2 id="hSteps">手順</h2>
         <select id="sample" aria-label="サンプルを入れる">
           <option value="">サンプルを入れる…</option>
+          <option value="blank">白紙にする</option>
           <option value="word">業務フロー（Word の例）</option>
           <option value="gyomu">業務の流れ（例）</option>
           <option value="shinsei">申請と承認（例）</option>
@@ -184,7 +185,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
 
       <div class="editor">
         <div class="gutter" id="gutter" aria-hidden="true"></div>
-        <textarea id="src" wrap="off" spellcheck="false" aria-label="手順（1 行に 1 つ）"></textarea>
+        <textarea id="src" wrap="off" spellcheck="false" aria-label="手順（1 行に 1 つ）" placeholder="ここに手順を 1 行に 1 つ書きます&#10;例）&#10;開始&#10;書類を作る&#10;終了"></textarea>
       </div>
       <div id="msgs" class="msgs" aria-live="polite"></div>
 
@@ -1368,7 +1369,7 @@ function save() {
 function load() {
   let o = null;
   try { o = JSON.parse(localStorage.getItem("fc-tool-v1") || "null"); } catch (e) { o = null; }
-  ta.value = o && typeof o.src === "string" ? o.src : SAMPLES.word;
+  ta.value = o && typeof o.src === "string" ? o.src : "";   // はじめは白紙から
   if (o) optIds.forEach(id => { if (typeof o[id] === "string") $(id).value = o[id]; });
   if (o && o.offsets && typeof o.offsets === "object") offsets = o.offsets;
   if (o && o.rewires && typeof o.rewires === "object") rewires = o.rewires;
@@ -1499,16 +1500,17 @@ document.querySelectorAll("[data-ins]").forEach(b => b.addEventListener("click",
 $("sample").addEventListener("change", e => {
   const k = e.target.value;
   e.target.value = "";
-  if (!SAMPLES[k]) return;
+  if (k !== "blank" && !SAMPLES[k]) return;
   commit();
-  ta.value = SAMPLES[k];
+  ta.value = k === "blank" ? "" : SAMPLES[k];
   jumpRefs = null;
   offsets = {};
   rewires = {};
   if (k === "word") { $("optSize").value = "a4p"; $("optStyle").value = "gyomu"; }
   update();
   commit();
-  toast("サンプルを入れました。", "元に戻す", undo);
+  toast(k === "blank" ? "白紙にしました。" : "サンプルを入れました。", "元に戻す", undo);
+  if (k === "blank") ta.focus();
 });
 
 // 文字の入力は、手を止めたところで 1 回分として記録する
