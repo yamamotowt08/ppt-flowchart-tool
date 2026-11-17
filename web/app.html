@@ -262,7 +262,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       </div>
       <div class="stats">
         <span id="stats"></span>
-        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すとつなぎ先が変わり、何もない所で離すとそこまで伸びます。箱を動かすと上下の箱にそろって補助線が出ます。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりできます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
+        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すとつなぎ先が変わり、何もない所で離すとそこまで伸びます。箱を動かすと上下の箱や縦の線にそろって補助線が出ます。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりできます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
       </div>
     </section>
   </main>
@@ -1579,17 +1579,26 @@ function finishEndDrag() {
   toast(`矢印の${d.end === "b" ? "行き先" : "出どころ"}を「${n.label}」にしました。`, "元に戻す", undo);
 }
 
-// 動かす箱の元の位置と、そろえる相手
-//   縦の補助線：上下にある箱の中心・左右のふち（横の補正はしない）
+// 動かす箱の元の位置と、そろえる相手（縦の補助線だけ。横の補正はしない）
+//   ・上下にある箱の中心・左右のふち
+//   ・縦に走る線：箱の上下の辺の真ん中にその線が来るよう、箱の中心をそろえる
 let dragGuides = null;
 function boxInfo(n) {
   const off = offsets[n.key] || [0, 0];
-  const xs = [];
+  const xs = [], lineXs = [];
   for (const m of state.L.nodes.concat(state.L.notes)) {
     if (!isShape(m) || m.key === n.key) continue;
     xs.push(m.x, m.x - m.w / 2, m.x + m.w / 2);
   }
-  return { x0: n.x - off[0], y0: n.y - off[1], w: n.w, h: n.h, xs, ys: [] };
+  const idx = state.L.nodes.indexOf(n);
+  for (const ln of state.L.lines) {
+    if (ln.a === idx || ln.b === idx || ln.b === n || ln.owner === n) continue;   // 自分につながる線は一緒に動くので除く
+    for (let k = 0; k < ln.pts.length - 1; k++) {
+      const p = ln.pts[k], q = ln.pts[k + 1];
+      if (Math.abs(p[0] - q[0]) < 0.5 && Math.abs(p[1] - q[1]) > 0.5) lineXs.push(p[0]);
+    }
+  }
+  return { x0: n.x - off[0], y0: n.y - off[1], w: n.w, h: n.h, xs, lineXs, ys: [] };
 }
 
 // 一番近い矢印・図形のふちの上の点
@@ -1636,7 +1645,7 @@ window.addEventListener("pointermove", e => {
   } else if (drag.wire && !["v3", "h3", "j4"].includes(drag.route)) {
     return;   // まっすぐな線は動かさない
   } else if (drag.box) {
-    // 箱は上下の箱の中心・ふちにそろうと吸い付き、補助線を出す
+    // 箱は上下の箱の中心・ふちや、縦に走る線にそろうと吸い付き、補助線を出す
     const b = drag.box, k = paper.querySelector("svg").getScreenCTM().a, th = 8 / k;
     let ox = drag.base[0] + dx, oy = drag.base[1] + dy;
     const cx = b.x0 + ox, cy = b.y0 + oy;
@@ -1648,7 +1657,9 @@ window.addEventListener("pointermove", e => {
       }
       return best;
     };
-    const fx = fit([cx, cx - b.w / 2, cx + b.w / 2], b.xs), fy = fit([cy], b.ys);
+    // 線を辺の真ん中に通すそろえを優先し、なければ箱どうしでそろえる
+    const fx = fit([cx], b.lineXs) || fit([cx, cx - b.w / 2, cx + b.w / 2], b.xs);
+    const fy = fit([cy], b.ys);
     if (fx) ox += fx.d;
     if (fy) oy += fy.d;
     dragGuides = { x: fx ? fx.at : null, y: fy ? fy.at : null };
