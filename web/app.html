@@ -922,7 +922,14 @@ function layout(g, o) {
   }
   // 黒い点は、必ず実線の矢印か箱のふちの上に置く（箱や点を動かしても線から離れない）
   for (const d of L.dots) {
-    const q = nearestOn([d.x, d.y], d.onEdge || !arrowSegs.length ? L.snap : arrowSegs);
+    // 同じ高さを通る矢印の上に置く。なければ、その点が付いている箱のふちの上（箱の中の矢印に吸い込まれない）
+    let q;
+    if (d.onEdge) q = nearestOn([d.x, d.y], L.snap);
+    else {
+      const cross = arrowSegs.filter(([a, b]) => Math.min(a[1], b[1]) - 0.5 <= d.y && d.y <= Math.max(a[1], b[1]) + 0.5);
+      const own = d.owner !== undefined && g.nodes[d.owner] && isShape(g.nodes[d.owner]) ? edges(g.nodes[d.owner]) : L.snap;
+      q = cross.length ? nearestOn([d.x, d.y], cross) : nearestOn([d.x, d.y], own);
+    }
     if (!q || Math.hypot(q[0] - d.x, q[1] - d.y) < 0.05) continue;
     d.x = q[0]; d.y = q[1];
     for (const ln of L.lines) {
