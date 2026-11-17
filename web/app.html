@@ -1216,10 +1216,65 @@ function syncIds() {
   prevLines = N;
 }
 
+// 「> #4」の行き先は、番号ではなく「どの行の手順か」で覚えておく。
+// 箱を足す・消す・並べ替えるで手順の番号がずれたら、文の「#番号」を付け直す（書き換え中の行はそのまま）
+const REF_RE = /([>＞]\s*)([#＃])\s*([0-9０-９]+)/g;
+let jumpRefs = null;   // 行の見えない番号 → { text: その行の文, to: [行き先の手順の見えない番号…] }
+let fixingRefs = false;
+function rememberJumps(units) {
+  jumpRefs = {};
+  ta.value.replace(/\r\n?/g, "\n").split("\n").forEach((ln, i) => {
+    const to = [...ln.matchAll(REF_RE)].map(m => { const u = units[parseInt(toHalf(m[3]), 10) - 1]; return u ? u.uid : null; });
+    if (to.length) jumpRefs[lineIds[i]] = { text: ln, to };
+  });
+}
+function renumberJumps(num) {
+  if (!jumpRefs) return 0;
+  const lines = ta.value.replace(/\r\n?/g, "\n").split("\n");
+  const numOf = {};
+  parse(ta.value, num, lineIds).units.forEach((u, i) => { numOf[u.uid] = i + 1; });
+  const edits = [];
+  let start = 0;
+  lines.forEach((ln, i) => {
+    const ref = jumpRefs[lineIds[i]];
+    if (ref && ref.text === ln) {
+      let k = 0;
+      const next = ln.replace(REF_RE, (m, pre, hash, n) => {
+        const to = numOf[ref.to[k++]];
+        return to && to !== parseInt(toHalf(n), 10) ? `${pre}${hash}${to}` : m;
+      });
+      if (next !== ln) edits.push([start, start + ln.length, next]);
+    }
+    start += ln.length + 1;
+  });
+  if (!edits.length) return 0;
+  // 下の行から書き換える（Ctrl+Z で戻せる方法で。カーソルの位置はずらさない）
+  const focused = document.activeElement === ta;
+  let a = ta.selectionStart, b = ta.selectionEnd;
+  const shift = p => edits.reduce((q, [s, e, t]) => (e <= p ? q + t.length - (e - s) : q), p);
+  fixingRefs = true;
+  try {
+    if (focused) for (const [s, e, t] of edits.slice().reverse()) typeAt(s, e, t);
+    else {
+      let v = ta.value;
+      for (const [s, e, t] of edits.slice().reverse()) v = v.slice(0, s) + t + v.slice(e);
+      ta.value = v;
+    }
+  } finally { fixingRefs = false; }
+  [a, b] = [shift(a), shift(b)];
+  if (focused) ta.setSelectionRange(a, b);
+  syncIds();
+  return edits.length;
+}
+
 function update() {
+  if (fixingRefs) return;
   const o = options();
   syncIds();
+  const fixed = renumberJumps(o.num);
   const { units, sides, lineInfo } = parse(ta.value, o.num, lineIds);
+  rememberJumps(units);
+  if (fixed) toast(`手順の番号がずれたので、戻り先の番号（#）を ${fixed} か所付け直しました。`);
   const g = buildGraph(units, sides);
   const L = layout(g, o);
   const st = STYLES[o.style];
@@ -1406,6 +1461,7 @@ $("sample").addEventListener("change", e => {
   if (!SAMPLES[k]) return;
   commit();
   ta.value = SAMPLES[k];
+  jumpRefs = null;
   offsets = {};
   rewires = {};
   if (k === "word") { $("optSize").value = "a4p"; $("optStyle").value = "gyomu"; }
@@ -1839,6 +1895,7 @@ function commit() {
 function restore(snap) {
   const o = JSON.parse(snap);
   ta.value = o.src;
+  jumpRefs = null;
   if (o.lineIds) { lineIds = o.lineIds; prevLines = o.src.split("\n"); }
   offsets = o.offsets;
   rewires = o.rewires;
