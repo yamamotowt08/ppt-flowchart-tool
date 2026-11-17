@@ -760,21 +760,30 @@ function layout(g, o) {
     ? (g.nodes[v].key || `bar${g.nodes[v].unit}${g.nodes[v].join ? "j" : "f"}`) : (v.key || "");
   const byKey = {};
   g.nodes.forEach((n, i) => { if (n.key) byKey[n.key] = i; });
+  // 2 つの箱が横（縦）に重なっていれば、重なっている所にまっすぐな矢印を通す（箱を少し動かしても折れ曲がらない）
+  const overlap = (a1, a2, b1, b2, mid) => {
+    const lo = Math.max(a1, b1) + 3, hi = Math.min(a2, b2) - 3;
+    return lo <= hi ? Math.min(hi, Math.max(lo, mid)) : null;
+  };
+  const straightX = (a, b) => (Math.abs(a.x - b.x) < 0.5 ? null : overlap(a.x - a.w / 2, a.x + a.w / 2, b.x - b.w / 2, b.x + b.w / 2, (a.x + b.x) / 2));
+  const straightY = (a, b) => (Math.abs(a.y - b.y) < 0.5 ? null : overlap(topOf(a), bottomOf(a), topOf(b), bottomOf(b), (a.y + b.y) / 2));
   // 矢印の行き先・出どころを付け替えたときの通り道（相手の位置で形を決める）
   const routeBetween = (a, b, ln) => {
     // 間に別の箱があるかどうか（あれば右を回る）
     const blocked = g.nodes.some(n => isShape(n) && n !== a && n !== b &&
       Math.abs(n.x - b.x) < n.w / 2 + 2 && topOf(n) < topOf(b) && bottomOf(n) > bottomOf(a));
     if (topOf(b) >= bottomOf(a) - 0.5 && !blocked) {
-      ln.S = [a.x, bottomOf(a)]; ln.E = [b.x, topOf(b)]; ln.sites = [2, 0];
-      if (Math.abs(a.x - b.x) < 0.5) ln.route = "straight"; else { ln.route = "v3"; ln.my = (ln.S[1] + ln.E[1]) / 2; }
+      const x = straightX(a, b);
+      ln.S = [x ?? a.x, bottomOf(a)]; ln.E = [x ?? b.x, topOf(b)]; ln.sites = [2, 0];
+      if (Math.abs(ln.S[0] - ln.E[0]) < 0.5) ln.route = "straight"; else { ln.route = "v3"; ln.my = (ln.S[1] + ln.E[1]) / 2; }
     } else if (blocked || bottomOf(b) <= topOf(a) + 0.5) {
       ln.S = [a.x + a.w / 2, a.y]; ln.E = [b.x, topOf(b)]; ln.sites = [3, 0];
       ln.route = "j4"; ln.lx = Math.max(a.x + a.w / 2, b.x + b.w / 2) + 16; ln.gy = topOf(b) - s * 0.12;
     } else {
       const right = b.x > a.x;
-      ln.S = [a.x + (right ? 1 : -1) * a.w / 2, a.y]; ln.E = [b.x - (right ? 1 : -1) * b.w / 2, b.y]; ln.sites = right ? [3, 1] : [1, 3];
-      if (Math.abs(a.y - b.y) < 0.5) ln.route = "straight"; else { ln.route = "h3"; ln.mx = (ln.S[0] + ln.E[0]) / 2; }
+      const y = straightY(a, b);
+      ln.S = [a.x + (right ? 1 : -1) * a.w / 2, y ?? a.y]; ln.E = [b.x - (right ? 1 : -1) * b.w / 2, y ?? b.y]; ln.sites = right ? [3, 1] : [1, 3];
+      if (Math.abs(ln.S[1] - ln.E[1]) < 0.5) ln.route = "straight"; else { ln.route = "h3"; ln.mx = (ln.S[0] + ln.E[0]) / 2; }
     }
   };
   for (const e of g.edges) {
@@ -798,14 +807,17 @@ function layout(g, o) {
     if (e.type === "down" || e.type === "merge") {
       S = [a.kind === "bar" ? b.x : a.x, bottomOf(a)];
       E = [b.kind === "bar" ? a.x : b.x, topOf(b)];
+      const x = a.kind !== "bar" && b.kind !== "bar" ? straightX(a, b) : null;
+      if (x !== null) { S = [x, S[1]]; E = [x, E[1]]; }
       if (Math.abs(S[0] - E[0]) < 0.5) ln = { route: "straight" };
       else {
         const gy = gapAbove(b);
         ln = { route: "v3", my: e.type === "merge" && gy > S[1] && gy < E[1] ? gy : (S[1] + E[1]) / 2 };
       }
     } else if (e.type === "right") {
-      S = [a.x + a.w / 2, a.y];
-      E = [b.x - b.w / 2, b.y];
+      const y = straightY(a, b);
+      S = [a.x + a.w / 2, y ?? a.y];
+      E = [b.x - b.w / 2, y ?? b.y];
       ln = Math.abs(S[1] - E[1]) < 0.5 ? { route: "straight" } : { route: "h3", mx: (S[0] + E[0]) / 2 };
     } else {
       S = [a.x + a.w / 2, a.y];
@@ -886,6 +898,7 @@ function layout(g, o) {
   // 点を吸い付かせる先：実線の矢印と、図形のふち
   L.snap = [];
   for (const ln of L.lines) if (!ln.dashed) for (let k = 0; k < ln.pts.length - 1; k++) L.snap.push([ln.pts[k], ln.pts[k + 1]]);
+  const arrowSegs = L.snap.slice();   // 矢印だけ（点は、見出しの横に付くもの以外は矢印の上に置く）
   const edges = t => { const x1 = t.x - t.w / 2, x2 = t.x + t.w / 2, y1 = topOf(t), y2 = bottomOf(t); return [[[x1, y1], [x2, y1]], [[x2, y1], [x2, y2]], [[x2, y2], [x1, y2]], [[x1, y2], [x1, y1]]]; };
   for (const n of g.nodes) {
     if (!isShape(n)) continue;
@@ -894,7 +907,7 @@ function layout(g, o) {
   }
   // 黒い点は、必ず実線の矢印か箱のふちの上に置く（箱や点を動かしても線から離れない）
   for (const d of L.dots) {
-    const q = nearestOn([d.x, d.y], L.snap);
+    const q = nearestOn([d.x, d.y], d.onEdge || !arrowSegs.length ? L.snap : arrowSegs);
     if (!q || Math.hypot(q[0] - d.x, q[1] - d.y) < 0.05) continue;
     d.x = q[0]; d.y = q[1];
     for (const ln of L.lines) {
