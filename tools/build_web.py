@@ -1,4 +1,4 @@
-"""ツール本体（app/tool.html、EXE の中に入る）を作る。
+"""HTML 版（フローチャート作成ツール.html）と、EXE 版の中に入れる本体（app/tool.html）を作る。
 
 web/app.html の __PPTX_TEMPLATE__ に、python-pptx の標準テンプレート
 （スライドマスター・レイアウト・テーマ）を埋め込む。
@@ -10,7 +10,8 @@ from pptx import Presentation
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, 'web', 'app.html')
-OUT = os.path.join(ROOT, 'app', 'tool.html')
+OUT = os.path.join(ROOT, 'フローチャート作成ツール.html')   # ダブルクリックで開く HTML 版
+APP_OUT = os.path.join(ROOT, 'app', 'tool.html')          # EXE 版の中に入れる本体（同じ中身）
 
 SKIP = ('ppt/printerSettings/', 'docProps/thumbnail', 'ppt/slides/')
 
@@ -47,11 +48,12 @@ def main():
     assert html.count('__PPTX_TEMPLATE__') == 1
     page = html.replace('__PPTX_TEMPLATE__', data)
 
-    # EXE の中に入れるツール本体
-    with open(OUT, 'w', encoding='utf-8') as f:
-        f.write('<!doctype html>\n<html lang="ja">\n<head>\n<meta charset="utf-8">\n'
-                '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'
-                '</head>\n<body>\n' + page + '\n</body>\n</html>\n')
+    doc = ('<!doctype html>\n<html lang="ja">\n<head>\n<meta charset="utf-8">\n'
+           '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'
+           '</head>\n<body>\n' + page + '\n</body>\n</html>\n')
+    for out in (OUT, APP_OUT):
+        with open(out, 'w', encoding='utf-8') as f:
+            f.write(doc)
     # Artifact 用（骨組みは公開時に付く）
     if len(sys.argv) > 1:
         with open(sys.argv[1], 'w', encoding='utf-8') as f:
