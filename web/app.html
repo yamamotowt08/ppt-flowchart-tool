@@ -1315,7 +1315,11 @@ function renumberJumps(num) {
     start += ln.length + 1;
   });
   if (!edits.length) return 0;
-  // 下の行から書き換える（Ctrl+Z で戻せる方法で。カーソルの位置はずらさない）
+  applyEdits(edits);
+  return edits.length;
+}
+// [はじめ, おわり, 新しい文] の書き換えを、下から順に行う（Ctrl+Z で戻せる方法で。カーソルの位置はずらさない）
+function applyEdits(edits) {
   const focused = document.activeElement === ta;
   let a = ta.selectionStart, b = ta.selectionEnd;
   const shift = p => edits.reduce((q, [s, e, t]) => (e <= p ? q + t.length - (e - s) : q), p);
@@ -1331,7 +1335,35 @@ function renumberJumps(num) {
   [a, b] = [shift(a), shift(b)];
   if (focused) ta.setSelectionRange(a, b);
   syncIds();
-  return edits.length;
+}
+
+// 照査・打合せは必ず横に分ける。本線の手順や小項目として書かれていたら「@」の行に書き換える。
+// 今打っている行、いちばん上の手順、小項目や並行が付いた手順、戻りの矢印・合流先になっている手順はそのまま
+const NOTE_LINE_RE = /照査|打合|打ち合/;
+// 名前の頭の「1.」「1.1.」などの番号
+const ITEM_NUM_RE = /^[0-9０-９]+(?:[.．][0-9０-９]+)*[.．)）、:：]\s*/;
+// 「@」の行では「、」「・」などが区切りなので、1 つの名前の中では見た目の近い別の字にしておく（読むときは元に戻す）
+const noteSafe = t => t.replace(/・/g, "･").replace(/[、,，]/g, "､").replace(/[\/／]/g, "∕");
+const noteUnsafe = t => t.replace(/･/g, "・").replace(/､/g, "、").replace(/∕/g, "／");
+function convertNotes(num) {
+  const { units, sides } = parse(ta.value, num, lineIds);
+  const cur = document.activeElement === ta ? lineAt(ta.selectionStart) : -1;
+  const strip = t => clean(clean(t).replace(ITEM_NUM_RE, ""));
+  const keep = new Set(sides.map(sd => units.indexOf(sd.after)));
+  units.forEach(u => (u.chain || []).forEach(c => { const t = findTarget(c, units); if (t.index >= 0) keep.add(t.index); }));
+  sides.forEach(sd => { if (sd.target) { const t = findTarget(sd.target, units); if (t.index >= 0) keep.add(t.index); } });
+  const change = [];
+  units.forEach((u, i) => {
+    if (i > 0 && u.kind === "proc" && !u.chain.length && !u.subs.length && !keep.has(i) && u.line !== cur && NOTE_LINE_RE.test(u.text)) change.push([u.line, strip(u.text)]);
+    (u.subs || []).forEach(sb => { if (sb.line !== cur && NOTE_LINE_RE.test(sb.text)) change.push([sb.line, strip(sb.text)]); });
+  });
+  if (!change.length) return 0;
+  if (!jumpRefs) rememberJumps(units);   // 書き換えでずれる「#番号」を付け直せるように
+  const lines = ta.value.replace(/\r\n?/g, "\n").split("\n"), at = [0];
+  lines.forEach((ln, i) => { at[i + 1] = at[i] + ln.length + 1; });
+  applyEdits(change.sort((x, y) => x[0] - y[0]).map(([ln, t]) => [at[ln], at[ln] + lines[ln].length, `@${noteSafe(t)}`]));
+  renumberJumps(num);
+  return change.length;
 }
 
 function update() {
@@ -1339,9 +1371,11 @@ function update() {
   const o = options();
   syncIds();
   const fixed = renumberJumps(o.num);
+  const notes = convertNotes(o.num);
   const { units, sides, lineInfo } = parse(ta.value, o.num, lineIds);
   rememberJumps(units);
-  if (fixed) toast(`手順の番号がずれたので、戻り先の番号（#）を ${fixed} か所付け直しました。`);
+  if (notes) toast(`照査・打合せの行を、横に分かれる形（@）に直しました（${notes} か所）。`);
+  else if (fixed) toast(`手順の番号がずれたので、戻り先の番号（#）を ${fixed} か所付け直しました。`);
   const g = buildGraph(units, sides);
   const L = layout(g, o);
   const st = STYLES[o.style];
@@ -1540,6 +1574,7 @@ let typingTimer = 0;
 ta.addEventListener("input", () => { update(); clearTimeout(typingTimer); typingTimer = setTimeout(commit, 700); });
 ta.addEventListener("scroll", () => { gutter.scrollTop = ta.scrollTop; });
 ["keyup", "click", "focus", "blur", "select"].forEach(ev => ta.addEventListener(ev, markCurrent));
+ta.addEventListener("blur", () => { if (NOTE_LINE_RE.test(ta.value)) { update(); commit(); } });
 optIds.forEach(id => {
   const sel = $(id).tagName === "SELECT";
   $(id).addEventListener(sel ? "change" : "input", () => { update(); if (sel) commit(); });
