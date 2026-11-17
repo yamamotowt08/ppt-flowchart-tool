@@ -88,10 +88,10 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
 
 .howto { border-top: 1px solid var(--rule); padding-top: 8px; }
 .howto summary { cursor: pointer; font-weight: 700; font-family: var(--f-display); letter-spacing: .04em; }
-.howto table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
-.howto td { border-top: 1px solid var(--rule); padding: 5px 4px; vertical-align: top; }
-.howto td:first-child { font-family: var(--f-mono); white-space: nowrap; color: var(--accent); padding-right: 10px; }
-.howto .tbl { overflow-x: auto; }
+.howto table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 13px; }
+.howto td { border-top: 1px solid var(--rule); padding: 4px; vertical-align: top; }
+.howto td:first-child { color: var(--muted); white-space: nowrap; padding-right: 12px; }
+.howto td:last-child { font-family: var(--f-mono); color: var(--accent); }
 
 .stage { display: grid; gap: 10px; min-width: 0; }
 .opts { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 14px; }
@@ -122,6 +122,8 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
 .paper .wire { touch-action: none; }
 .paper .end { cursor: crosshair; touch-action: none; }
 .paper .end:hover, .paper .end.on { fill-opacity: .55; }
+.paper .sub { cursor: grab; }
+.paper .sub.moving { opacity: .75; }
 .paper .node.drop .shape { stroke: #E0752D; stroke-width: 3; }
 .paper .wire:hover { stroke-opacity: .12; }
 .paper .dot:hover circle:last-child { r: 4.5; }
@@ -166,13 +168,11 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       </div>
 
       <div class="inserts" role="toolbar" aria-label="行を追加">
-        <button class="chip" type="button" data-ins="start"><svg viewBox="0 0 16 12"><rect x="1" y="2" width="14" height="8" rx="4"/></svg>開始</button>
-        <button class="chip" type="button" data-ins="proc"><svg viewBox="0 0 16 12"><rect x="1" y="2" width="14" height="8"/></svg>処理</button>
+        <button class="chip" type="button" data-ins="proc" title="作業（箱）を 1 つ足します。「開始」「終了」と書けば丸い箱になります"><svg viewBox="0 0 16 12"><rect x="1" y="2" width="14" height="8"/></svg>作業</button>
         <button class="chip" type="button" data-ins="sub"><svg viewBox="0 0 16 12"><rect x="1" y="1" width="14" height="10"/><rect x="3.5" y="5" width="9" height="4"/></svg>小項目</button>
         <button class="chip" type="button" data-ins="memo"><svg viewBox="0 0 16 12"><circle cx="3" cy="6" r="1.6"/><path d="M5 6H9"/><rect x="9.5" y="3" width="6" height="6"/></svg>照査・打合せ</button>
         <button class="chip" type="button" data-ins="meet"><svg viewBox="0 0 16 12"><circle cx="3" cy="6" r="1.6"/><path d="M5 6H9"/><rect x="9.5" y="3" width="6" height="6"/></svg>打合せ</button>
         <button class="chip" type="button" data-ins="side"><svg viewBox="0 0 16 12"><path d="M14 1V11M14 3H4V8"/><rect x="1" y="8" width="6" height="3.5"/></svg>並行（左）</button>
-        <button class="chip" type="button" data-ins="end"><svg viewBox="0 0 16 12"><rect x="1" y="2" width="14" height="8" rx="4"/></svg>終了</button>
       </div>
 
       <div class="editor">
@@ -183,25 +183,20 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
 
       <details class="howto" id="howto">
         <summary>書き方</summary>
-        <div class="tbl">
-          <table>
-            <tr><td>開始 / 終了</td><td>角丸（開始・終了）。「完了」「スタート」なども可</td></tr>
-            <tr><td>在庫はある？</td><td>「？」で終わる行はひし形（判断）</td></tr>
-            <tr><td>書類を作る</td><td>それ以外は四角（処理）</td></tr>
-            <tr><td>判断？ &gt; 処理</td><td>「いいえ」のとき右に処理。そのあと元の流れ（次の手順）に戻る</td></tr>
-            <tr><td>判断？ &gt; 処理 &gt; 戻らない</td><td>処理のあと元の流れに戻らない（そこで終わる）。「×」でも可</td></tr>
-            <tr><td>判断？ &gt; 処理 &gt; 戻る</td><td>処理のあと次の手順に戻る（書かなくても同じ）</td></tr>
-            <tr><td>判断？ &gt; 処理 &gt; #2</td><td>処理のあと 2 番目の手順へ戻る（番号は左の青い数字）</td></tr>
-            <tr><td>判断？ &gt; #5</td><td>「いいえ」のとき 5 番目の手順へ</td></tr>
-            <tr><td>判断？ &gt; 終了</td><td>「いいえ」のとき右に終了</td></tr>
-            <tr><td>| 作業A → 作業B<br>| 作業C</td><td>「|」で始まる行が続くと同時進行（1 行が 1 列）。→ で同じ列の次の作業。前後は二重線で分かれて合流します</td></tr>
-            <tr><td>・小項目</td><td>すぐ上の手順の中に小さな箱で入る（例：・基礎工の検討）</td></tr>
-            <tr><td>@照査、打合せ</td><td>右に照査・打合せの箱を付ける。手順の見出しのすぐ下なら見出しの横、小項目の間ならその間、最後なら次の手順との間に付きます</td></tr>
-            <tr><td>&lt; 作業 &gt; 図面作成</td><td>すぐ上の手順と並行して左で進み、「図面作成」の前で本線に合流（破線）。「&gt; #9」のように番号でも可。下に「・」で小項目も書けます</td></tr>
-            <tr><td>※ メモ</td><td>図には出ません</td></tr>
-            <tr><td>○ / ◇ / □</td><td>行の先頭に付けて空白を入れると形を指定（例：○ 受付完了）</td></tr>
-          </table>
-        </div>
+        <table>
+          <tr><td>手順を足す</td><td>1 行に 1 つ書く</td></tr>
+          <tr><td>丸い箱</td><td>開始 / 終了</td></tr>
+          <tr><td>判断（ひし形）</td><td>最後を「？」にする</td></tr>
+          <tr><td>「いいえ」で処理</td><td>判断？ &gt; 処理</td></tr>
+          <tr><td>「いいえ」で戻す</td><td>判断？ &gt; 処理 &gt; #2</td></tr>
+          <tr><td>同時に進める</td><td>| 作業A → 作業B（1 行 1 列）</td></tr>
+          <tr><td>左で並行</td><td>&lt; 作業 &gt; 合流先</td></tr>
+          <tr><td>小項目</td><td>・小項目</td></tr>
+          <tr><td>照査・打合せ</td><td>@照査、打合せ</td></tr>
+          <tr><td>メモ（図に出ない）</td><td>※ メモ</td></tr>
+          <tr><td>順番を変える</td><td>箱や黒い点をドラッグ</td></tr>
+          <tr><td>箱を消す</td><td>箱をクリックして Delete</td></tr>
+        </table>
       </details>
     </section>
 
@@ -256,7 +251,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
       </div>
       <div class="stats">
         <span id="stats"></span>
-        <span>図形・黒い点・折れ曲がった線はドラッグで動かせます。矢印のはしをつかんで別の箱で離すとつなぎ先が変わり、何もない所で離すとそこまで伸びます。箱を動かすと上下の箱や縦の線にそろって補助線が出ます。箱をクリックして Delete キーで、その手順を消せます。線をクリックすると実線・点線を選んだり消したりでき、まっすぐな矢印はドラッグで横にずらせます　<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
+        <span>箱・黒い点・線はドラッグで動かせます（手順の欄も一緒に変わります）。<button id="btnReset" class="linkbtn" type="button" hidden>配置を元に戻す</button> <button id="btnShowLines" class="linkbtn" type="button" hidden>消した線を戻す</button></span>
       </div>
     </section>
   </main>
@@ -650,6 +645,7 @@ function layout(g, o) {
     n.x = mainX + n.col * cp;
     n.y = g.nodes[g.entry[n.unit]].y;
   }
+  L.mainX = mainX; L.cp = cp;   // ドラッグで落とした先を決めるのに使う
 
   // 照査・打合せの箱（右の列）
   const noteW = boxW * 0.62, noteH = A.note * s;
@@ -677,6 +673,7 @@ function layout(g, o) {
     const base = n.uid || `${n.kind === "note" ? "@" : ""}${n.text}|${n.lane ?? ""}|${n.side ? n.col : ""}|${n.sideLane ? "<" : ""}`;
     seen[base] = (seen[base] || 0) + 1;
     n.key = seen[base] > 1 ? `${base}|${seen[base]}` : base;
+    n.nx = n.x; n.ny = n.y;   // 動かす前の位置
     const off = o.offsets[n.key];
     if (off) { n.x += off[0]; n.y += off[1]; L.moved++; }
   };
@@ -950,7 +947,9 @@ function svgOf(L, st, forImage) {
       for (const ln of L.lines) if (ln.type === "sub" && ln.owner === n) {
         out.push(`<path d="M${f1(ln.S[0])},${f1(ln.S[1])} L${f1(ln.E[0])},${f1(ln.E[1])}" stroke="${c(st.arrow)}" stroke-width="${st.lineW}" marker-end="url(#ah)"/>`);
       }
-      for (const b of n.subBoxes) { out.push(svgRect(b, st.sub[0], st.sub[1], st.lineW)); out.push(svgText(b, st.text, "l")); }
+      n.subBoxes.forEach((b, j) => {
+        out.push(`<g class="sub" data-sub="${j}" data-line="${b.line}">${svgRect(b, st.sub[0], st.sub[1], st.lineW)}${svgText(b, st.text, "l")}</g>`);
+      });
     } else {
       const [fill, line] = st[n.look];
       const x = n.x - n.w / 2, y = topOf(n);
@@ -1445,13 +1444,11 @@ function appendLine(text, selFrom, selLen) {
   commit();
 }
 const INSERTS = {
-  start: () => insertLine("開始", 0, 2),
-  proc: () => insertLine("新しい処理", 0, 5),
+  proc: () => insertLine("新しい作業", 0, 5),
   sub: () => insertLine("・小項目", 1, 3),
   memo: () => insertLine("@照査、打合せ", 1, 6),
   meet: () => insertLine("@打合せ", 1, 3),
   side: () => insertLine("< 並行する作業 > #1", 2, 6),
-  end: () => insertLine("終了", 0, 2),
 };
 document.querySelectorAll("[data-ins]").forEach(b => b.addEventListener("click", () => INSERTS[b.dataset.ins]()));
 
@@ -1771,6 +1768,330 @@ function reorderByDrag(key) {
   return true;
 }
 
+// 行 from を、行 at の前に動かす（見えない行の番号も一緒に動かす）
+function moveLine(from, at) {
+  const lines = ta.value.split("\n");
+  const [ln] = lines.splice(from, 1), [id] = lineIds.splice(from, 1);
+  if (at > from) at--;
+  lines.splice(at, 0, ln);
+  lineIds.splice(at, 0, id);
+  prevLines = lines;
+  ta.value = lines.join("\n");
+}
+
+// ---------- ドラッグで落とした先に合わせて、手順の欄の行を組み替える ----------
+// 行を { t: 文, id: 見えない番号 } の並びとして書き換える（番号で探すので、行がずれても迷わない）
+function editRows(fn) {
+  const rows = ta.value.split("\n").map((t, i) => ({ t, id: lineIds[i] }));
+  fn(rows);
+  ta.value = rows.map(r => r.t).join("\n");
+  lineIds = rows.map(r => r.id);
+  prevLines = rows.map(r => r.t);
+}
+const rowAt = (rows, id) => rows.findIndex(r => r.id === id);
+function insertAt(rows, slot, add) {
+  if (slot.before) rows.splice(rowAt(rows, slot.before), 0, ...add);
+  else { const i = rowAt(rows, slot.after); rows.splice(i < 0 ? rows.length : i + 1, 0, ...add); }
+}
+const laneParts = t => clean(t).replace(LANE_RE, "").split(/→|->|⇒|＞|>/).map(clean).filter(Boolean);
+// 書き換える行の「#番号」が指している手順を覚えておき、あとで番号がずれても付け直せるようにする
+function refsOf(text) {
+  const units = state.g.units;
+  return [...text.matchAll(REF_RE)].map(m => { const u = units[parseInt(toHalf(m[3]), 10) - 1]; return u ? u.uid : null; });
+}
+function keepRefs(id, text, to) { if (jumpRefs && to.some(Boolean)) jumpRefs[id] = { text, to }; }
+// 並びが変わった箱は、手で動かした分を消して新しい場所の並びに任せる
+function dropOffsets(key, ids) {
+  delete offsets[key];
+  for (const k of Object.keys(offsets)) if (ids.some(id => k.startsWith(`${id}|`))) delete offsets[k];
+}
+// 手順のかたまりの最後の行（小項目・照査打合せ・並行（左）・同時進行の続きの行まで）
+function unitEnd(i) {
+  const { g, lineInfo } = state;
+  let e = g.units[i].line;
+  while (e + 1 < lineInfo.length && lineInfo[e + 1] && (["sub", "memo", "side"].includes(lineInfo[e + 1].type) || (lineInfo[e + 1].type === "lane" && !lineInfo[e + 1].n))) e++;
+  return e;
+}
+// 高さ y に手順として入れる場所（この手順の行の前／いちばん下ならこの行の後ろ）
+function mainSlot(y) {
+  const { g, L } = state, M = g.units.length;
+  const mid = i => (topOf(L.nodes[g.entry[i]]) + bottomOf(L.nodes[g.exit[i]])) / 2;
+  for (let i = 0; i < M; i++) if (mid(i) > y) return { before: lineIds[g.units[i].line] };
+  return { after: lineIds[M ? unitEnd(M - 1) : lineIds.length - 1] };
+}
+const closerToMain = n => Math.abs(n.x - state.L.mainX) < Math.abs(n.x - n.nx);
+function dropDone(key, ids, msg) {
+  dropOffsets(key, ids);
+  update();
+  commit();
+  toast(`${msg}（手順の欄も書き換えました）`, "元に戻す", undo);
+  return true;
+}
+
+// 箱を離したとき：箱の種類ごとに、落とした場所に合わせて手順の欄を書き換える
+function dropBox(key) {
+  const n = state.L.nodes.find(m => m.key === key);
+  if (!n) return false;
+  if (n.lane !== undefined) return dropLaneItem(n);
+  if (n.sideLane) return dropSideItem(n);
+  if (n.side) return dropChainItem(n);
+  return reorderByDrag(key);
+}
+
+// 同時進行の箱：枠の中なら列の中・別の列（外にはみ出したら新しい列）へ。枠の上下に出したら普通の手順にする
+function dropLaneItem(n) {
+  const { g, L } = state, u = g.units[n.unit], lines = ta.value.split("\n");
+  const lanes = u.lanes.map(l => ({ id: lineIds[l[0].line], parts: laneParts(lines[l[0].line]) }));
+  const ids = lanes.map(l => l.id), j0 = n.lane, k0 = +n.uid.split("|").pop(), raw = lanes[j0].parts[k0];
+  if (raw == null) return false;
+  const fork = L.nodes[u.fork], join = L.nodes[u.join];
+  if (n.y > bottomOf(fork) && n.y < topOf(join)) {
+    const xs = lanes.map((_, j) => L.mainX + (j - (lanes.length - 1) / 2) * L.cp);
+    let jt = 0;
+    xs.forEach((x, j) => { if (Math.abs(x - n.x) < Math.abs(xs[jt] - n.x)) jt = j; });
+    const fresh = n.x < xs[0] - L.cp * 0.6 ? -1 : n.x > xs[xs.length - 1] + L.cp * 0.6 ? 1 : 0;
+    const kt = fresh ? 0 : u.laneNodes[jt].map(i => L.nodes[i]).filter(m => m !== n && m.y < n.y).length;
+    if (!fresh && jt === j0 && kt === k0) return false;
+    lanes[j0].parts.splice(k0, 1);
+    if (!fresh) lanes[jt].parts.splice(kt, 0, raw);
+    editRows(rows => {
+      if (fresh) insertAt(rows, fresh < 0 ? { before: ids[0] } : { after: ids[ids.length - 1] }, [{ t: `| ${raw}`, id: newId() }]);
+      for (const l of lanes) {
+        const r = rowAt(rows, l.id);
+        if (l.parts.length) rows[r].t = `| ${l.parts.join(" → ")}`; else rows.splice(r, 1);
+      }
+    });
+    const where = fresh ? "新しい列" : jt === j0 ? `同じ列の ${kt + 1} 番目` : ` ${jt + 1} 列目の ${kt + 1} 番目`;
+    return dropDone(n.key, ids, `「${n.text}」を同時進行の${where}に動かしました`);
+  }
+  const slot = mainSlot(n.y);
+  editRows(rows => {
+    insertAt(rows, slot, [{ t: raw, id: newId() }]);
+    const r = rowAt(rows, lanes[j0].id), left = lanes[j0].parts.filter((_, k) => k !== k0);
+    if (left.length) rows[r].t = `| ${left.join(" → ")}`; else rows.splice(r, 1);
+  });
+  return dropDone(n.key, ids, `「${n.text}」を同時進行から出して、手順にしました`);
+}
+
+// 並行（左）の箱：左の列の中なら並べ替え、本線に寄せたら普通の手順にする（小項目も一緒に動く）
+function dropSideItem(n) {
+  const { g, L, lineInfo } = state, lines = ta.value.split("\n");
+  const ni = L.nodes.indexOf(n), sl = g.sideLanes.find(x => x.ids.includes(ni));
+  if (!sl) return false;
+  let a = sl.line, b = a;
+  while (b + 1 < lines.length && lineInfo[b + 1] && ["side", "sub", "memo"].includes(lineInfo[b + 1].type)) b++;
+  const region = lineIds.slice(a, b + 1), items = [], memos = [];
+  let target = "";
+  for (let i = a; i <= b; i++) {
+    const type = lineInfo[i].type;
+    if (type === "side") {
+      const t = clean(lines[i]).replace(SIDE_RE, "").replace(/＞/g, ">"), p = t.indexOf(">");
+      if (p >= 0 && clean(t.slice(p + 1).split(">")[0])) target = clean(t.slice(p + 1).split(">")[0]);
+      const ps = (p >= 0 ? t.slice(0, p) : t).split(/→|->|⇒/).map(clean).filter(Boolean);
+      ps.forEach(raw => items.push({ raw, id: ps.length === 1 ? lineIds[i] : newId(), subs: [] }));
+    } else if (type === "sub" && items.length) items[items.length - 1].subs.push({ t: lines[i], id: lineIds[i] });
+    else memos.push({ t: lines[i], id: lineIds[i] });
+  }
+  const k0 = sl.ids.indexOf(ni), it = items[k0];
+  if (!it) return false;
+  const to = target ? refsOf(`> ${target}`) : [];
+  const sideRows = list => list.flatMap((x, i) => [{ t: `< ${x.raw}${i === 0 && target ? ` > ${target}` : ""}`, id: x.id }, ...x.subs]).concat(memos);
+  let msg, main = null;
+  if (!closerToMain(n)) {
+    const kt = sl.ids.map(i => L.nodes[i]).filter(m => m !== n && m.y < n.y).length;
+    if (kt === k0) return false;
+    items.splice(k0, 1);
+    items.splice(kt, 0, it);
+    msg = `「${n.text}」を並行（左）の ${kt + 1} 番目に動かしました`;
+  } else {
+    items.splice(k0, 1);
+    main = mainSlot(n.y);
+    msg = `「${n.text}」を並行（左）から出して、手順にしました`;
+  }
+  const out = sideRows(items);
+  editRows(rows => {
+    if (main) insertAt(rows, main, [{ t: it.raw, id: newId() }, ...it.subs]);
+    rows.splice(rowAt(rows, region[0]), region.length, ...out);
+  });
+  if (out.length && items.length) keepRefs(out[0].id, out[0].t, to);
+  return dropDone(n.key, region, msg);
+}
+
+// 判断の右（「いいえ」のとき）の箱：同じ高さなら並べ替え、本線に寄せたら普通の手順にする
+function dropChainItem(n) {
+  const { g, L } = state, u = g.units[n.unit], id = lineIds[u.line];
+  const t = ta.value.split("\n")[u.line].replace(/＞/g, ">"), p = t.indexOf(">");
+  if (p < 0) return false;
+  const head = clean(t.slice(0, p)), chain = t.slice(p + 1).split(">").map(clean).filter(Boolean);
+  const c0 = n.col - 1, raw = chain[c0];
+  if (raw == null) return false;
+  const dn = L.nodes[g.entry[n.unit]];
+  let msg, main = null;
+  if (Math.abs(n.y - dn.y) < dn.h) {
+    const kt = L.nodes.filter(m => m.side && m.unit === n.unit && m !== n && m.x < n.x).length;
+    if (kt === c0) return false;
+    chain.splice(c0, 1);
+    chain.splice(kt, 0, raw);
+    msg = `「${n.text}」を「${u.text}」の右の ${kt + 1} 番目に動かしました`;
+  } else if (Math.abs(n.x - L.mainX) < n.w) {
+    chain.splice(c0, 1);
+    main = mainSlot(n.y);
+    msg = `「${n.text}」を判断の右から出して、手順にしました`;
+  } else return false;
+  const nt = chain.length ? `${head} > ${chain.join(" > ")}` : head;
+  const to = refsOf(nt);
+  editRows(rows => {
+    if (main) insertAt(rows, main, [{ t: raw, id: newId() }]);
+    rows[rowAt(rows, id)].t = nt;
+  });
+  keepRefs(id, nt, to);
+  return dropDone(n.key, [id], msg);
+}
+
+// 小項目：同じ手順の中なら並べ替え、別の箱の上ならその箱の小項目に、何もない所なら普通の手順にする
+function dropSub(node, j, dx, dy) {
+  const { L } = state, b = node.subBoxes[j], x = b.x + dx, y = b.y + dy;
+  const inside = m => Math.abs(x - m.x) <= m.w / 2 && y >= topOf(m) && y <= bottomOf(m);
+  if (inside(node)) return reorderSub(node, j, dy);
+  const lines = ta.value.split("\n"), sub = node.subs[j], subId = lineIds[sub.line], raw = lines[sub.line];
+  // 小項目を付けられる箱：本線の手順と、並行（左）の箱（その行のいちばん後ろの箱だけ）
+  const canHold = m => {
+    if (m === node || !isShape(m) || m.lane !== undefined || m.side) return false;
+    if (!m.sideLane) return true;
+    const t = clean(lines[m.line]).replace(SIDE_RE, "").replace(/＞/g, ">");
+    return +m.uid.split("<").pop() === (t.split(">")[0].split(/→|->|⇒/).map(clean).filter(Boolean).length - 1);
+  };
+  const host = L.nodes.find(m => canHold(m) && inside(m));
+  if (host) {
+    const hs = host.subs || [], kt = (host.subBoxes || []).filter(sb => sb.y < y).length;
+    const slot = !hs.length ? { after: lineIds[host.line] } : kt < hs.length ? { before: lineIds[hs[kt].line] } : { after: lineIds[hs[hs.length - 1].line] };
+    editRows(rows => { insertAt(rows, slot, [{ t: raw, id: newId() }]); rows.splice(rowAt(rows, subId), 1); });
+    return dropDone(node.key, [subId], `小項目「${sub.text}」を「${host.text}」の小項目にしました`);
+  }
+  const slot = mainSlot(y);
+  editRows(rows => { insertAt(rows, slot, [{ t: clean(raw).replace(SUB_RE, ""), id: newId() }]); rows.splice(rowAt(rows, subId), 1); });
+  return dropDone(node.key, [subId], `小項目「${sub.text}」を手順にしました`);
+}
+
+// 黒い点を動かしたとき：照査・打合せの点なら「@」の行を、並行（左）の点なら分かれる所・合流先を書き換える
+function dropDot(key) {
+  const { g, L, lineInfo } = state;
+  const dot = L.dots.find(d => d.key === key);
+  if (!dot) return false;
+  const name = key.slice(1).replace(/\|\d+$/, "");
+  if (name[0] !== "<" && name[0] !== ">") {
+    const note = L.notes.find(n => n.uid && n.uid.startsWith(`${name}|n`));
+    return note ? moveNoteByDrag(note.key, dot.y) : false;
+  }
+  // 並行（左）：点の高さのすぐ下にある手順
+  const units = g.units, M = units.length;
+  const below = units.findIndex((u, i) => topOf(L.nodes[g.entry[i]]) > dot.y);
+  const uid = name.slice(1), sl = g.sideLanes.find(x => L.nodes[name[0] === "<" ? x.ids[0] : x.ids[x.ids.length - 1]].uid === uid);
+  if (!sl) return false;
+  const lines = ta.value.split("\n");
+  let a = sl.line, b = a;
+  while (b + 1 < lines.length && lineInfo[b + 1] && ["side", "sub", "memo"].includes(lineInfo[b + 1].type)) b++;
+  const region = lineIds.slice(a, b + 1), sideIdx = [];
+  for (let i = a; i <= b; i++) if (lineInfo[i].type === "side") sideIdx.push(i);
+  const headOf = i => { const t = clean(lines[i]).replace(SIDE_RE, "").replace(/＞/g, ">"); const p = t.indexOf(">"); return clean(p >= 0 ? t.slice(0, p) : t); };
+  // 合流先の書き方：名前が 1 つだけならその名前、ほかは #番号
+  const nameOf = i => {
+    const t = units[i].text;
+    return units[i].kind !== "block" && t && !/^[#＃]/.test(t) && units.filter(u => u.kind !== "block" && u.text === t).length === 1 ? t : `#${i + 1}`;
+  };
+  let from = sl.from, to = sl.to < 0 ? M : sl.to, msg;
+  if (name[0] === "<") {
+    // 分かれる所：点のすぐ下の手順と並行して進む（その手順のかたまりの後ろに行を移す）
+    const f = below < 0 ? M - 1 : below;
+    if (f === from || units[f].kind === "block") return false;
+    from = f;
+    if (to <= from) to = from + 1;
+    msg = `並行（左）を「${units[from].text}」から分かれるようにしました`;
+  } else {
+    // 合流先：点のすぐ下の手順
+    const t = below < 0 ? M : below;
+    if (t === to || t <= from) return false;
+    to = t;
+    msg = to < M ? `並行（左）の合流先を「${units[to].text || `#${to + 1}`}」にしました` : "並行（左）を最後まで合流しないようにしました";
+  }
+  const target = to === from + 1 || to >= M ? "" : nameOf(to);
+  const refs = target.startsWith("#") ? refsOf(`> ${target}`) : [];
+  const out = [];
+  let first = true;
+  for (let i = a; i <= b; i++) {
+    if (lineInfo[i].type !== "side") { out.push({ t: lines[i], id: lineIds[i] }); continue; }
+    out.push({ t: `< ${headOf(i)}${first && target ? ` > ${target}` : ""}`, id: lineIds[i] });
+    first = false;
+  }
+  editRows(rows => {
+    rows.splice(rowAt(rows, region[0]), region.length);
+    if (name[0] === "<") insertAt(rows, { after: lineIds[(() => { let e = units[from].line; while (e + 1 < lineInfo.length && lineInfo[e + 1] && ["sub", "memo"].includes(lineInfo[e + 1].type)) e++; return e; })()] }, out);
+    else rows.splice(rowAt(rows, lineIds[a - 1]) + 1, 0, ...out);
+  });
+  if (target.startsWith("#")) keepRefs(out.find(r => r.t.startsWith("<")).id, out.find(r => r.t.startsWith("<")).t, refs);
+  return dropDone(key, [], msg);
+}
+
+// 小項目を上下にドラッグしたら、同じ手順の中で並べ替える（手順の欄の「・」の行も動かす）
+function reorderSub(node, j, dy) {
+  const subs = node.subs, boxes = node.subBoxes;
+  const y = boxes[j].y + dy;
+  let to = 0;
+  boxes.forEach((b, k) => { if (k !== j && b.y < y) to++; });
+  if (to === j) return false;
+  const others = subs.filter((_, k) => k !== j);
+  moveLine(subs[j].line, to < others.length ? others[to].line : others[others.length - 1].line + 1);
+  update();
+  commit();
+  toast(`小項目「${subs[j].text}」を ${to + 1} 番目に並べ替えました（手順の欄も同じ順番です）。`, "元に戻す", undo);
+  return true;
+}
+
+// 照査・打合せの箱を別の場所に動かしたら、手順の欄の「@」の行もそこへ動かす
+function moveNoteByDrag(key, atY) {
+  const { g, L, lineInfo } = state;
+  const note = L.notes.find(n => n.key === key);
+  if (!note) return false;
+  const y = atY ?? note.y;   // 点を動かしたときは点の高さで決める
+  const units = g.units, nodeOf = i => L.nodes[g.entry[i]];
+  // 置ける場所：見出しの横（小項目があるとき）、小項目の間、手順のあと
+  const slots = [];
+  units.forEach((u, i) => {
+    const n = nodeOf(i), k = hasSubs(n) ? n.subs.length : 0;
+    if (k) {
+      slots.push({ unit: i, pos: 0, y: n.head.y });
+      for (let j = 1; j < k; j++) slots.push({ unit: i, pos: j, y: (bottomOf(n.subBoxes[j - 1]) + topOf(n.subBoxes[j])) / 2 });
+    }
+    const ex = L.nodes[g.exit[i]], next = i + 1 < units.length ? nodeOf(i + 1) : null;
+    slots.push({ unit: i, pos: k, y: next ? (bottomOf(ex) + topOf(next)) / 2 : bottomOf(ex) + 10 });
+  });
+  if (!slots.length) return false;
+  const best = slots.reduce((a, b) => (Math.abs(b.y - y) < Math.abs(a.y - y) ? b : a));
+  const cur = nodeOf(note.unit), k0 = hasSubs(cur) ? cur.subs.length : 0;
+  if (best.unit === note.unit && best.pos === Math.min(note.pos, k0)) return false;
+
+  // 入れる行：見出しのすぐ下／(pos-1) 番目の小項目のすぐ下／その手順のかたまりの最後
+  const u = units[best.unit], lines = ta.value.split("\n");
+  let at;
+  if (best.pos === 0 && hasSubs(nodeOf(best.unit))) at = u.line + 1;
+  else if (best.pos < (nodeOf(best.unit).subs || []).length) at = u.subs[best.pos - 1].line + 1;
+  else {
+    at = u.line;
+    while (at + 1 < lines.length && lineInfo[at + 1] && (["sub", "memo", "side"].includes(lineInfo[at + 1].type) || (lineInfo[at + 1].type === "lane" && !lineInfo[at + 1].n))) at++;
+    at++;
+  }
+  const from = note.line, uid = lineIds[from], label = clean(lines[from].replace(NOTE_RE, ""));
+  if (at === from || at === from + 1) return false;
+  moveLine(from, at);
+  // 新しい場所の並びに任せる（手で動かした分は消す）
+  for (const k of Object.keys(offsets)) if (k.startsWith(`${uid}|n`) || k === `●${uid}` || k.startsWith(`●${uid}|`)) delete offsets[k];
+  update();
+  commit();
+  const where = best.pos === 0 && hasSubs(nodeOf(best.unit)) ? "の見出しの横" : best.pos < (nodeOf(best.unit).subs || []).length ? `の小項目 ${best.pos} と ${best.pos + 1} の間` : "のあと";
+  toast(`「${label}」を「${units[best.unit].text || "同時進行"}」${where}に動かしました（手順の欄の @ の行も動かしました）。`, "元に戻す", undo);
+  return true;
+}
+
 // 一番近い矢印・図形のふちの上の点
 function snapPoint(p, segs) {
   let best = null, bd = Infinity;
@@ -1785,6 +2106,14 @@ function snapPoint(p, segs) {
 paper.addEventListener("pointerdown", e => {
   const endEl = e.target.closest(".end");
   if (endEl && e.button === 0) { startEndDrag(endEl, e); return; }
+  // 小項目は 1 つずつつかんで、同じ手順の中で上下に並べ替える
+  const subEl = e.target.closest(".sub");
+  if (subEl && e.button === 0) {
+    const n = state.L.nodes[+subEl.closest(".node").dataset.i];
+    drag = { sub: true, node: n, j: +subEl.dataset.sub, el: subEl, line: +subEl.dataset.line, key: n.key, start: svgPoint(e), moved: false, dx: 0, dy: 0 };
+    e.preventDefault();
+    return;
+  }
   const dotEl = e.target.closest(".dot"), wireEl = e.target.closest(".wire");
   const el = dotEl || e.target.closest(".node") || wireEl;
   if (!el && e.button === 0 && zoom > 1) { startPan(e); return; }
@@ -1795,7 +2124,7 @@ paper.addEventListener("pointerdown", e => {
   drag = {
     key: n.key, line: el.dataset.line !== undefined ? +el.dataset.line : -1, start: svgPoint(e),
     base: (offsets[n.key] || [0, 0]).slice(), moved: false, dot: dotEl ? n : null, route: el === wireEl ? n.route : null,
-    wire: el === wireEl, x: e.clientX, y: e.clientY,
+    wire: el === wireEl, x: e.clientX, y: e.clientY, isNote: el.dataset.note !== undefined,
     box: !dotEl && el !== wireEl ? boxInfo(n) : null,
   };
   e.preventDefault();
@@ -1808,6 +2137,13 @@ window.addEventListener("pointermove", e => {
   if (!drag.moved && Math.hypot(dx, dy) < 3) return;
   drag.moved = true;
   paper.classList.add("dragging");
+  if (drag.sub) {
+    // 小項目だけが動く（離したときに、落とした場所に合わせて手順の欄を書き換える）
+    drag.dx = dx; drag.dy = dy;
+    drag.el.setAttribute("transform", `translate(${f1(dx)} ${f1(dy)})`);
+    drag.el.classList.add("moving");
+    return;
+  }
   if (drag.dot) {
     // 点は矢印や図形のふちの近くに来たら吸い付く
     const d = drag.dot, q = snapPoint([d.x0 + drag.base[0] + dx, d.y0 + drag.base[1] + dy], state.L.snap);
@@ -1854,8 +2190,16 @@ window.addEventListener("pointerup", e => {
   const d = drag;
   drag = null;
   paper.classList.remove("dragging");
+  if (dragFrame) { cancelAnimationFrame(dragFrame); dragFrame = 0; if (!dragGuides) update(); }
   if (dragGuides) { dragGuides = null; update(); }
-  if (d.moved && !d.dot && !d.wire && d.box && reorderByDrag(d.key)) return;
+  if (d.sub) {
+    if (!d.moved) selectLine(d.line);
+    else if (!dropSub(d.node, d.j, d.dx, d.dy)) update();
+    return;
+  }
+  if (d.moved && d.dot && dropDot(d.key)) return;
+  if (d.moved && d.isNote && moveNoteByDrag(d.key)) return;
+  if (d.moved && !d.dot && !d.wire && d.box && dropBox(d.key)) return;
   if (d.moved) commit();
   else if (d.wire) showLinePop(d.key, d.x, d.y);
   else if (d.line >= 0) selectLine(d.line);
