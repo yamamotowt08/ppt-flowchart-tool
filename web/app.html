@@ -794,12 +794,11 @@ function layout(g, o) {
     const rw = o.rewires[key];
     if (rw) {
       // はしは「箱」か「何もない所の点（伸ばした先）」
-      const endOf = (v, def) => v === undefined ? g.nodes[def]
-        : typeof v === "string" ? (byKey[v] !== undefined ? g.nodes[byKey[v]] : null)
-        : { x: v.x, y: v.y, w: 0, h: 0, free: true };
+      const endOf = (v, def) => typeof v !== "string" ? g.nodes[def]
+        : byKey[v] !== undefined ? g.nodes[byKey[v]] : null;
       const A = endOf(rw.a, e.a), B = endOf(rw.b, e.b);
       if (A && B && A !== B) {
-        const ln = { type: e.type, a: A.free ? -1 : A.idx, b: B.free ? -1 : B.idx, freeA: A.free ? A : null, freeB: B.free ? B : null, arrow: true, key, edge: true };
+        const ln = { type: e.type, a: A.idx, b: B.idx, arrow: true, key, edge: true };
         routeBetween(A, B, ln);
         L.lines.push(ln);
         L.moved++;
@@ -826,6 +825,14 @@ function layout(g, o) {
       ln = { route: "j4", lx: laneX + 12 * laneNo++, gy: gapAbove(b) };
     }
     L.lines.push(Object.assign(ln, { S, E, type: e.type, a: e.a, b: e.b, arrow: true, key, edge: true }));
+  }
+  // 二重線（同時進行の分かれ目・合流）は、つながる矢印の所まで必ず伸ばす（箱を横に動かしても外れない）
+  for (const ln of L.lines) for (const [v, p] of [[ln.a, ln.S], [ln.b, ln.E]]) {
+    const n = typeof v === "number" && v >= 0 ? g.nodes[v] : null;
+    if (!n || n.kind !== "bar") continue;
+    n.x1 = Math.min(n.x1, p[0] - boxW * 0.12);
+    n.x2 = Math.max(n.x2, p[0] + boxW * 0.12);
+    n.w = n.x2 - n.x1;
   }
   // 小項目どうしの矢印
   for (const n of g.nodes.filter(hasSubs)) {
@@ -896,6 +903,23 @@ function layout(g, o) {
     if (!isShape(n)) continue;
     L.snap.push(...edges(n));
     if (hasSubs(n)) { L.snap.push(...edges(n.head)); n.subBoxes.forEach(b => L.snap.push(...edges(b))); }
+  }
+  // 黒い点は、必ず実線の矢印か箱のふちの上に置く（箱や点を動かしても線から離れない）
+  for (const d of L.dots) {
+    const q = nearestOn([d.x, d.y], L.snap);
+    if (!q || Math.hypot(q[0] - d.x, q[1] - d.y) < 0.05) continue;
+    d.x = q[0]; d.y = q[1];
+    for (const ln of L.lines) {
+      if (ln.dot !== d) continue;
+      if (ln.type === "rejoin") { ln.E = [d.x, d.y]; ln.route = "v2"; }
+      else if (ln.type === "branch") { ln.S = [d.x, d.y]; ln.route = "h2"; }
+      else {
+        ln.S = [d.x, d.y];
+        if (Math.abs(ln.S[1] - ln.E[1]) < 0.5) ln.route = "straight";
+        else if (ln.route === "straight") { ln.route = "h3"; ln.mx = ln.E[0] - noteW * 0.35; }
+      }
+      ln.pts = pts(ln);
+    }
   }
   return L;
 }
@@ -1037,6 +1061,7 @@ function slideXml(L, st, font) {
   };
 
   const ids = [], dotIds = [], noteIds = [];
+  const barSites = new Map();   // 「線の番号|はし」→ [二重線の見えない箱の id, 接続点]
   const dotXml = (d, di) => {
     const r = L.dotR;
     dotIds[di] = id;
@@ -1057,10 +1082,27 @@ function slideXml(L, st, font) {
   L.nodes.forEach((n, i) => {
     if (n.kind === "bar") {
       const W = n.x2 - n.x1;
-      out.push(`<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${n.join ? "合流" : "同時進行"} ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(n.x1, topOf(n), W, n.h)}` +
+      // 矢印がつく所ごとに、見えない小さな箱を置いて二重線と 1 つにまとめる。
+      // 矢印はこの箱にくっつけるので、PowerPoint で二重線や箱を動かしても外れない
+      const sites = [];
+      L.lines.forEach((ln, li) => {
+        for (const [v, p, end] of [[ln.a, ln.S, "a"], [ln.b, ln.E, "b"]]) {
+          if (v === i) sites.push({ key: `${li}|${end}`, x: p[0], top: Math.abs(p[1] - topOf(n)) <= Math.abs(p[1] - bottomOf(n)) });
+        }
+      });
+      const gid = id++;
+      const bar = `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${n.join ? "合流" : "同時進行"} ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(n.x1, topOf(n), W, n.h)}` +
         `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="${Math.max(1, EMU(W))}" h="${Math.max(1, EMU(n.h))}" fill="none">` +
         `<a:moveTo><a:pt x="0" y="0"/></a:moveTo><a:lnTo><a:pt x="${EMU(W)}" y="0"/></a:lnTo><a:moveTo><a:pt x="0" y="${EMU(n.h)}"/></a:moveTo><a:lnTo><a:pt x="${EMU(W)}" y="${EMU(n.h)}"/></a:lnTo>` +
-        `</a:path></a:pathLst></a:custGeom><a:noFill/>${lnXml(st.arrow, st.lineW, false, false)}</p:spPr></p:sp>`);
+        `</a:path></a:pathLst></a:custGeom><a:noFill/>${lnXml(st.arrow, st.lineW, false, false)}</p:spPr></p:sp>`;
+      const pins = sites.map(q => {
+        barSites.set(q.key, [id, q.top ? 0 : 2]);
+        return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="接続点 ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(q.x - 0.5, q.top ? topOf(n) : bottomOf(n), 1, 0)}` +
+          `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr></p:sp>`;
+      });
+      const off = `<a:off x="${EMU(n.x1)}" y="${EMU(topOf(n))}"/><a:ext cx="${EMU(W)}" cy="${EMU(n.h)}"/>`;
+      out.push(`<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${gid}" name="${n.join ? "合流" : "同時進行"}（二重線）"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+        `<p:grpSpPr><a:xfrm>${off}${off.replace("a:off", "a:chOff").replace("a:ext", "a:chExt")}</a:xfrm></p:grpSpPr>${bar}${pins.join("")}</p:grpSp>`);
       return;
     }
     let xml;
@@ -1117,9 +1159,12 @@ function slideXml(L, st, font) {
     if (ln.type === "branch") { out.push(connXml(ln, dotOf(ln), [ids[ln.b], 0])); continue; }
     if (ln.type === "rejoin") { out.push(connXml(ln, [ids[ln.a], 2], dotOf(ln))); continue; }
     const [sa, sb] = ln.sites || SITES[ln.type];
-    const glue = (v, site) => (v >= 0 && L.nodes[v].kind !== "bar" ? [ids[v], site] : null);
-    // 横にずらした矢印も箱にくっつけておく（PowerPoint で箱を動かしても置いていかれない）
-    out.push(connXml(ln, glue(ln.a, sa), glue(ln.b, sb)));
+    const li = L.lines.indexOf(ln);
+    const glue = (v, site, end) => (v < 0 ? null
+      : L.nodes[v].kind === "bar" ? barSites.get(`${li}|${end}`) || null
+      : [ids[v], site]);
+    // 横にずらした矢印も箱や二重線にくっつけておく（PowerPoint で動かしても置いていかれない）
+    out.push(connXml(ln, glue(ln.a, sa, "a"), glue(ln.b, sb, "b")));
   }
   if (L.title) {
     const t = L.title;
@@ -1688,12 +1733,9 @@ function finishEndDrag() {
   paper.classList.remove("dragging");
   const prev = rewires[d.ln.key];
   if (d.target === null) {
-    // 何もない所で離したら、そこまで矢印を伸ばす
-    if (!d.p) { update(); return; }
-    rewires[d.ln.key] = Object.assign({}, prev, { [d.end]: { x: Math.round(d.p.x * 10) / 10, y: Math.round(d.p.y * 10) / 10 } });
+    // 矢印は必ず箱につなぐ。何もない所で離したら元に戻す
     update();
-    commit();
-    toast(`矢印の${d.end === "b" ? "先" : "根元"}を伸ばしました。`, "元に戻す", undo);
+    if (d.p) toast("矢印のはしは、箱の上で離すとつなぎ先が変わります（箱から離すことはできません）。");
     return;
   }
   const n = state.L.nodes[d.target];
@@ -2093,7 +2135,8 @@ function moveNoteByDrag(key, atY) {
 }
 
 // 一番近い矢印・図形のふちの上の点
-function snapPoint(p, segs) {
+// いちばん近い線の上の点
+function nearestOn(p, segs) {
   let best = null, bd = Infinity;
   for (const [a, b] of segs) {
     const dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy || 1e-9;
@@ -2101,7 +2144,11 @@ function snapPoint(p, segs) {
     const q = [a[0] + t * dx, a[1] + t * dy], d = Math.hypot(q[0] - p[0], q[1] - p[1]);
     if (d < bd) { bd = d; best = q; }
   }
-  return best && bd < 10 ? best : p;
+  return best;
+}
+function snapPoint(p, segs) {
+  const q = nearestOn(p, segs);
+  return q && Math.hypot(q[0] - p[0], q[1] - p[1]) < 10 ? q : p;
 }
 paper.addEventListener("pointerdown", e => {
   const endEl = e.target.closest(".end");
