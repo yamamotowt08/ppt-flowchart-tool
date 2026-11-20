@@ -1345,6 +1345,9 @@ const ITEM_NUM_RE = /^[0-9０-９]+(?:[.．][0-9０-９]+)*[.．)）、:：]\s*/
 // 「@」の行では「、」「・」などが区切りなので、1 つの名前の中では見た目の近い別の字にしておく（読むときは元に戻す）
 const noteSafe = t => t.replace(/・/g, "･").replace(/[、,，]/g, "､").replace(/[\/／]/g, "∕");
 const noteUnsafe = t => t.replace(/･/g, "・").replace(/､/g, "、").replace(/∕/g, "／");
+// 小項目の名前が「第1回」「2回目」「③」のような回数だけなら親の名前（打合せ①②…と番号が付く）、ほかは「打合せ（…）」
+const COUNT_RE = /^(第\s*)?[0-9０-９]+\s*(回目?)?$|^[①-⑳]$|^[（(][0-9０-９]+[)）]$/;
+const noteLabel = (head, sub) => (COUNT_RE.test(clean(sub)) ? head : NOTE_LINE_RE.test(sub) ? sub : `${head}（${sub}）`);
 function convertNotes(num) {
   const { units, sides } = parse(ta.value, num, lineIds);
   const cur = document.activeElement === ta ? lineAt(ta.selectionStart) : -1;
@@ -1352,16 +1355,25 @@ function convertNotes(num) {
   const keep = new Set(sides.map(sd => units.indexOf(sd.after)));
   units.forEach(u => (u.chain || []).forEach(c => { const t = findTarget(c, units); if (t.index >= 0) keep.add(t.index); }));
   sides.forEach(sd => { if (sd.target) { const t = findTarget(sd.target, units); if (t.index >= 0) keep.add(t.index); } });
-  const change = [];
+  const change = [], drop = [];   // [行, 新しい名前（「、」で区切る）] と、消す行
   units.forEach((u, i) => {
-    if (i > 0 && u.kind === "proc" && !u.chain.length && !u.subs.length && !keep.has(i) && u.line !== cur && NOTE_LINE_RE.test(u.text)) change.push([u.line, strip(u.text)]);
-    (u.subs || []).forEach(sb => { if (sb.line !== cur && NOTE_LINE_RE.test(sb.text)) change.push([sb.line, strip(sb.text)]); });
+    const subs = u.subs || [];
+    if (i > 0 && u.kind === "proc" && !u.chain.length && !keep.has(i) && NOTE_LINE_RE.test(u.text) && u.line !== cur && !subs.some(sb => sb.line === cur)) {
+      // 手順そのものが照査・打合せ：小項目があれば、それぞれを照査・打合せの箱にする
+      const head = strip(u.text);
+      change.push([u.line, subs.length ? subs.map(sb => noteSafe(noteLabel(head, strip(sb.text)))) : [noteSafe(head)]]);
+      subs.forEach(sb => drop.push(sb.line));
+      return;
+    }
+    subs.forEach(sb => { if (sb.line !== cur && NOTE_LINE_RE.test(sb.text)) change.push([sb.line, [noteSafe(strip(sb.text))]]); });
   });
   if (!change.length) return 0;
   if (!jumpRefs) rememberJumps(units);   // 書き換えでずれる「#番号」を付け直せるように
   const lines = ta.value.replace(/\r\n?/g, "\n").split("\n"), at = [0];
   lines.forEach((ln, i) => { at[i + 1] = at[i] + ln.length + 1; });
-  applyEdits(change.sort((x, y) => x[0] - y[0]).map(([ln, t]) => [at[ln], at[ln] + lines[ln].length, `@${noteSafe(t)}`]));
+  const edits = change.map(([ln, items]) => [at[ln], at[ln] + lines[ln].length, `@${items.join("、")}`])
+    .concat(drop.map(ln => (ln + 1 < lines.length ? [at[ln], at[ln + 1], ""] : [at[ln] - 1, at[ln] + lines[ln].length, ""])));
+  applyEdits(edits.sort((x, y) => x[0] - y[0]));
   renumberJumps(num);
   return change.length;
 }
