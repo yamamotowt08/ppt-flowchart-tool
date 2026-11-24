@@ -181,6 +181,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
         <button class="chip" type="button" data-ins="memo"><svg viewBox="0 0 16 12"><circle cx="3" cy="6" r="1.6"/><path d="M5 6H9"/><rect x="9.5" y="3" width="6" height="6"/></svg>照査・打合せ</button>
         <button class="chip" type="button" data-ins="meet"><svg viewBox="0 0 16 12"><circle cx="3" cy="6" r="1.6"/><path d="M5 6H9"/><rect x="9.5" y="3" width="6" height="6"/></svg>打合せ</button>
         <button class="chip" type="button" data-ins="side"><svg viewBox="0 0 16 12"><path d="M14 1V11M14 3H4V8"/><rect x="1" y="8" width="6" height="3.5"/></svg>並行（左）</button>
+        <button class="chip" type="button" data-ins="branch" title="右に分かれる箱を足します。名前は自由で、番号は付きません"><svg viewBox="0 0 16 12"><circle cx="3" cy="6" r="1.6"/><path d="M5 6H9"/><rect x="9.5" y="3" width="6" height="6"/></svg>枝分かれ</button>
       </div>
 
       <div class="editor">
@@ -197,6 +198,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
           <tr><td>照査・打合せ</td><td>@照査、打合せ</td></tr>
           <tr><td>打合せ</td><td>@打合せ</td></tr>
           <tr><td>並行（左）</td><td>&lt; 作業 &gt; 合流先</td></tr>
+          <tr><td>枝分かれ</td><td>@名前（名前は自由。照査・打合せ以外は番号なし）</td></tr>
         </table>
       </details>
     </section>
@@ -653,7 +655,7 @@ function layout(g, o) {
       const items = grp.items.map(t => {
         const base = clean(t);
         counts[base] = (counts[base] || 0) + 1;
-        const label = o.num && !/[①-⑳]$/.test(base) ? base + CIRCLED(counts[base]) : base;
+        const label = o.num && NOTE_LINE_RE.test(base) && !/[①-⑳]$/.test(base) ? base + CIRCLED(counts[base]) : base;
         const cat = /照査/.test(base) ? "check" : /打合|打ち合|協議|会議/.test(base) ? "meet" : "other";
         return { kind: "note", text: base, label, cat, line: grp.line, look: "proc", w: noteW, h: noteH, unit: i, pos: grp.pos, uid: `${grp.uid}|n${grp.items.indexOf(t)}` };
       });
@@ -735,11 +737,11 @@ function layout(g, o) {
     }
   }
 
-  // 照査①・打合せ①… も、位置の上から順に付け直す
+  // 照査①・打合せ①… も、位置の上から順に付け直す（ほかの名前の枝分かれには番号を付けない）
   if (o.num) {
     const k = {};
     for (const it of byPosition(L.notes)) {
-      if (/[①-⑳]$/.test(it.text)) continue;
+      if (!NOTE_LINE_RE.test(it.text) || /[①-⑳]$/.test(it.text)) continue;
       k[it.text] = (k[it.text] || 0) + 1;
       it.label = it.text + CIRCLED(k[it.text]);
     }
@@ -1569,6 +1571,7 @@ const INSERTS = {
   memo: () => insertLine("@照査、打合せ", 1, 6),
   meet: () => insertLine("@打合せ", 1, 3),
   side: () => insertLine("< 並行する作業 > #1", 2, 6),
+  branch: () => insertLine("@名前", 1, 2),
 };
 document.querySelectorAll("[data-ins]").forEach(b => b.addEventListener("click", () => INSERTS[b.dataset.ins]()));
 
