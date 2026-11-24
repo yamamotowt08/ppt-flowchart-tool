@@ -191,7 +191,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
           <tr><td>照査・打合せ</td><td>@照査、打合せ</td></tr>
           <tr><td>打合せ</td><td>@打合せ</td></tr>
           <tr><td>並行（左）</td><td>&lt; 作業 &gt; 合流先</td></tr>
-          <tr><td>枝分かれ</td><td>@名前（名前は自由。照査・打合せ以外は番号なし）</td></tr>
+          <tr><td>枝分かれ</td><td>@名前（名前は自由。①②は名前が「照査」「打合せ」だけのものに付く）</td></tr>
           <tr><td>左に枝分かれ</td><td>@&lt;名前（図の上で箱を本線の反対側へドラッグしても切り替わる）</td></tr>
         </table>
       </details>
@@ -655,7 +655,7 @@ function layout(g, o) {
       const items = grp.items.map(t => {
         const base = clean(t);
         counts[base] = (counts[base] || 0) + 1;
-        const label = o.num && NOTE_LINE_RE.test(base) && !/[①-⑳]$/.test(base) ? base + CIRCLED(counts[base]) : base;
+        const label = o.num && NUMBERED_NOTE_RE.test(base) ? base + CIRCLED(counts[base]) : base;
         const cat = /照査/.test(base) ? "check" : /打合|打ち合|協議|会議/.test(base) ? "meet" : "other";
         return { kind: "note", text: base, label, cat, line: grp.line, look: "proc", w: noteW, h: noteH, unit: i, pos: grp.pos, left: !!grp.left, uid: `${grp.uid}|n${grp.items.indexOf(t)}` };
       });
@@ -748,7 +748,7 @@ function layout(g, o) {
   if (o.num) {
     const k = {};
     for (const it of byPosition(L.notes)) {
-      if (!NOTE_LINE_RE.test(it.text) || /[①-⑳]$/.test(it.text)) continue;
+      if (!NUMBERED_NOTE_RE.test(it.text)) continue;
       k[it.text] = (k[it.text] || 0) + 1;
       it.label = it.text + CIRCLED(k[it.text]);
     }
@@ -1356,6 +1356,8 @@ function applyEdits(edits) {
 // 照査・打合せは必ず横に分ける。本線の手順や小項目として書かれていたら「@」の行に書き換える。
 // 今打っている行、いちばん上の手順、小項目や並行が付いた手順、戻りの矢印・合流先になっている手順はそのまま
 const NOTE_LINE_RE = /照査|打合|打ち合/;
+// ①②…の番号を付けるのは、名前が「照査」「打合せ」だけのもの（「詳細設計照査」「現地打合せ」などには付けない）
+const NUMBERED_NOTE_RE = /^(照査|打ち?合わ?せ?)$/;
 // 名前の頭の「1.」「1.1.」などの番号
 const ITEM_NUM_RE = /^[0-9０-９]+(?:[.．][0-9０-９]+)*[.．)）、:：]\s*/;
 // 「@」の行では「、」「・」などが区切りなので、1 つの名前の中では見た目の近い別の字にしておく（読むときは元に戻す）
