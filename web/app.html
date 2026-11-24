@@ -174,7 +174,6 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
         <button class="chip" type="button" data-ins="memo"><svg viewBox="0 0 16 12"><circle cx="3" cy="6" r="1.6"/><path d="M5 6H9"/><rect x="9.5" y="3" width="6" height="6"/></svg>照査・打合せ</button>
         <button class="chip" type="button" data-ins="meet"><svg viewBox="0 0 16 12"><circle cx="3" cy="6" r="1.6"/><path d="M5 6H9"/><rect x="9.5" y="3" width="6" height="6"/></svg>打合せ</button>
         <button class="chip" type="button" data-ins="side"><svg viewBox="0 0 16 12"><path d="M14 1V11M14 3H4V8"/><rect x="1" y="8" width="6" height="3.5"/></svg>並行（左）</button>
-        <button class="chip" type="button" data-ins="balloon" title="番号の付かない吹き出しを、今の行の下に足します（今の行の作業・照査・打合せに付きます）"><svg viewBox="0 0 16 12"><path d="M1 1H15V8H8L4.5 11.5V8H1Z"/></svg>吹き出し</button>
       </div>
 
       <div class="editor">
@@ -191,7 +190,6 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
           <tr><td>照査・打合せ</td><td>@照査、打合せ</td></tr>
           <tr><td>打合せ</td><td>@打合せ</td></tr>
           <tr><td>並行（左）</td><td>&lt; 作業 &gt; 合流先</td></tr>
-          <tr><td>吹き出し</td><td>「名前」（すぐ上の作業・照査・打合せに付く。番号なし）</td></tr>
         </table>
       </details>
     </section>
@@ -257,11 +255,11 @@ const SIZES = { w169: [960, 540], s43: [720, 540], a4p: [540, 780], a4l: [780, 5
 // head=小項目つきの見出し / body=小項目の外枠 / sub=小項目 / notes=照査・打合せなど
 const STYLES = {
   gyomu: { proc: ["FFFF99", "000000"], term: ["FFFF99", "000000"], dec: ["FFFF99", "000000"], text: "000000", arrow: "000000", lineW: 1,
-           head: "FFFF99", body: "FFFFFF", sub: ["FFFFFF", "000000"], notes: { check: "CCFFFF", meet: "FF99CC", other: "F2F2F2", balloon: "FFFFFF" } },
+           head: "FFFF99", body: "FFFFFF", sub: ["FFFFFF", "000000"], notes: { check: "CCFFFF", meet: "FF99CC", other: "F2F2F2" } },
   color: { proc: ["DEEBF7", "2E75B6"], term: ["E2EFDA", "548235"], dec: ["FFF2CC", "BF9000"], text: "262626", arrow: "595959", lineW: 1.5,
-           head: "DEEBF7", body: "FFFFFF", sub: ["FFFFFF", "2E75B6"], notes: { check: "DDF2F7", meet: "FBE3EC", other: "F2F2F2", balloon: "FFFFFF" } },
+           head: "DEEBF7", body: "FFFFFF", sub: ["FFFFFF", "2E75B6"], notes: { check: "DDF2F7", meet: "FBE3EC", other: "F2F2F2" } },
   mono:  { proc: ["FFFFFF", "000000"], term: ["FFFFFF", "000000"], dec: ["FFFFFF", "000000"], text: "000000", arrow: "000000", lineW: 1,
-           head: "FFFFFF", body: "FFFFFF", sub: ["FFFFFF", "000000"], notes: { check: "FFFFFF", meet: "FFFFFF", other: "FFFFFF", balloon: "FFFFFF" } },
+           head: "FFFFFF", body: "FFFFFF", sub: ["FFFFFF", "000000"], notes: { check: "FFFFFF", meet: "FFFFFF", other: "FFFFFF" } },
 };
 const FONTS = {
   meiryoui: ["Meiryo UI", '"Meiryo UI", Meiryo, "BIZ UDPGothic", sans-serif'],
@@ -309,13 +307,6 @@ const LANE_RE = /^[|｜]\s*/;          // 同時進行の列（1 行が 1 列、
 const SUB_RE = /^[・･\-*]\s*/;         // 小項目（直前の手順の中に入る）
 const SIDE_RE = /^[<＜]\s*/;          // 左に並行して進む手順（> で合流先）
 const NOTE_RE = /^[@＠]\s*/;          // 照査・打合せなど（右に付く）
-const BALLOON_RE = /^[「『]/;           // 吹き出し（番号なし・名前は自由）。すぐ上の手順か照査・打合せに付く
-// 「本文」＞付け先：付け先は、すぐ上の「@」の行のどの箱か（書かなければいちばん後ろの箱）
-const balloonOf = s => {
-  const t = clean(s).replace(BALLOON_RE, "");
-  const m = t.match(/^(.*?)[」』]\s*(?:[>＞]\s*(.*))?$/);
-  return m ? { text: clean(m[1]), target: clean(m[2] || "") } : { text: clean(t), target: "" };
-};
 const NUM_RE = /^[0-9０-９]+[.．)）、:：](?![0-9０-９])\s*/;
 const SUBNUM_RE = /^[（(][0-9０-９]+[)）]\s*/;
 
@@ -323,7 +314,7 @@ function parse(src, autoNum, ids) {
   const idOf = i => (ids && ids[i]) || `L${i}`;
   const lines = src.replace(/\r\n?/g, "\n").split("\n");
   const units = [], sides = [], lineInfo = [];
-  let block = null, side = null, lastMain = null, lastStep = null, lastNotes = null;
+  let block = null, side = null, lastMain = null, lastStep = null;
   // 手順（黄色い箱）には番号を付けない。手で書いた番号はそのまま出す
   const stepText = t => t;
   const subText = t => (autoNum ? clean(t.replace(SUBNUM_RE, "").replace(NUM_RE, "")) : t);
@@ -333,19 +324,10 @@ function parse(src, autoNum, ids) {
     if (!s) { lineInfo.push({ type: "blank" }); return; }
     if (/^(※|'|\/\/)/.test(s)) { lineInfo.push({ type: "note" }); return; }
 
-    // 吹き出し：すぐ上が「@」の行ならその照査・打合せの箱に、ほかは手順に付く（照査・打合せと同じ場所の決まり）
-    if (BALLOON_RE.test(s)) {
-      const b = balloonOf(s);
-      if (b.text && lastNotes) lastNotes.balloons.push({ text: b.text, target: b.target, line: i, uid: idOf(i) });
-      else if (b.text && lastMain) lastMain.balloons.push({ pos: lastStep === lastMain ? lastMain.subs.length : Infinity, text: b.text, line: i, uid: idOf(i) });
-      lineInfo.push({ type: "memo", balloon: true });
-      return;
-    }
-    lastNotes = null;
     if (NOTE_RE.test(s)) {
       const items = s.replace(NOTE_RE, "").split(/[、,，・\/／]/).map(clean).filter(Boolean);
       // 見出しのすぐ後 → 見出しの横 / 小項目の間 → その間 / 最後 → 次の手順との間
-      if (lastMain && items.length) lastMain.notes.push(lastNotes = { pos: lastStep === lastMain ? lastMain.subs.length : Infinity, items, line: i, uid: idOf(i), balloons: [] });
+      if (lastMain && items.length) lastMain.notes.push({ pos: lastStep === lastMain ? lastMain.subs.length : Infinity, items, line: i, uid: idOf(i) });
       lineInfo.push({ type: "memo" });
       return;
     }
@@ -359,7 +341,7 @@ function parse(src, autoNum, ids) {
       const lane = s.replace(LANE_RE, "").split(/→|->|⇒|＞|>/).map(clean).filter(Boolean)
         .map((t, k) => Object.assign(classify(stepText(t)), { line: i, subs: [], uid: `${idOf(i)}|${k}` }));
       if (!block) {
-        block = { kind: "block", lanes: [], line: i, notes: [], balloons: [], subs: [], uid: idOf(i) };
+        block = { kind: "block", lanes: [], line: i, notes: [], subs: [], uid: idOf(i) };
         units.push(block);
         lineInfo.push({ type: "lane", n: units.length });
       } else {
@@ -393,7 +375,7 @@ function parse(src, autoNum, ids) {
     const p = t.indexOf(">");
     const head = p >= 0 ? t.slice(0, p) : t;
     const chain = p >= 0 ? t.slice(p + 1).split(">").map(clean).filter(Boolean) : [];
-    const u = Object.assign(classify(stepText(clean(head))), { chain, line: i, subs: [], notes: [], balloons: [], uid: idOf(i) });
+    const u = Object.assign(classify(stepText(clean(head))), { chain, line: i, subs: [], notes: [], uid: idOf(i) });
     units.push(u);
     lastMain = lastStep = u;
     lineInfo.push({ type: "step", n: units.length });
@@ -615,10 +597,8 @@ function layout(g, o) {
   let minOff = -Math.max(0, ...sideCol), maxOff = 0;
   for (const n of g.nodes) if (n.side) maxOff = Math.max(maxOff, n.col);
   for (const u of g.units) if (u.kind === "block") { const h = (u.lanes.length - 1) / 2; minOff = Math.min(minOff, -h); maxOff = Math.max(maxOff, h); }
-  const hasNotes = g.units.some(u => (u.notes && u.notes.length) || (u.balloons && u.balloons.length));
-  // 照査・打合せに付けた吹き出しは、その右にもう 1 列
-  const hasTied = g.units.some(u => (u.notes || []).some(grp => grp.balloons && grp.balloons.length));
-  const noteCols = hasNotes ? 0.85 + (hasTied ? 0.4 : 0) : 0;
+  const hasNotes = g.units.some(u => u.notes && u.notes.length);
+  const noteCols = hasNotes ? 0.85 : 0;
 
   const aL = W * 0.04, aR = W - W * 0.04, aT = o.title ? H * 0.15 : H * 0.05, aB = H - H * 0.05;
   const cols = maxOff - minOff + 1 + noteCols;
@@ -656,12 +636,13 @@ function layout(g, o) {
   L.mainX = mainX; L.cp = cp;   // ドラッグで落とした先を決めるのに使う
 
   // 照査・打合せの箱（右の列）
-  const noteW = boxW * 0.62, noteH = A.note * s, balH = noteH * 1.2;
+  const noteW = boxW * 0.62, noteH = A.note * s;
   const noteX = mainX + (maxOff > 0 ? maxOff * cp : 0) + boxW / 2 + noteW * 0.7 + noteW / 2;
   const counts = {};
   const groups = [];
   g.units.forEach((u, i) => {
-    for (const grp of u.notes || []) {
+    if (!u.notes || !u.notes.length) return;
+    for (const grp of u.notes) {
       const items = grp.items.map(t => {
         const base = clean(t);
         counts[base] = (counts[base] || 0) + 1;
@@ -669,18 +650,7 @@ function layout(g, o) {
         const cat = /照査/.test(base) ? "check" : /打合|打ち合|協議|会議/.test(base) ? "meet" : "other";
         return { kind: "note", text: base, label, cat, line: grp.line, look: "proc", w: noteW, h: noteH, unit: i, pos: grp.pos, uid: `${grp.uid}|n${grp.items.indexOf(t)}` };
       });
-      // 吹き出しを付ける箱（「＞名前」がなければ、この行のいちばん後ろの箱）
-      const bare = t => clean(noteUnsafe(t).replace(/[①-⑳]$/, ""));
-      for (const b of grp.balloons || []) {
-        const host = (b.target && items.find(it => bare(it.text) === bare(b.target))) || items[items.length - 1];
-        (host.balloons = host.balloons || []).push(b);
-      }
       groups.push({ unit: i, pos: grp.pos, items, line: grp.line, uid: grp.uid });
-    }
-    // 手順に付けた吹き出し（照査・打合せと同じ列。番号は付けない）
-    for (const b of u.balloons || []) {
-      groups.push({ unit: i, pos: b.pos, line: b.line, uid: b.uid, balloon: true,
-        items: [{ kind: "note", balloon: true, text: b.text, label: b.text, cat: "balloon", line: b.line, look: "proc", w: noteW, h: balH, unit: i, pos: b.pos, uid: `${b.uid}|n0` }] });
     }
   });
 
@@ -737,28 +707,13 @@ function layout(g, o) {
       dot.owner = b.idx;   // PowerPoint では、この箱と点・照査打合せを 1 つにまとめる
     }
     grp.dot = dot;
-    if (grp.balloon) {
-      // 吹き出しの先は、すぐ上の行のもの（見出し・小項目・箱）の右のふち。同時進行のかたまりは、そのあとの矢印の上
-      const b = g.nodes[g.exit[grp.unit]];
-      const tip = hasSubs(n) ? [n.x + n.w / 2, grp.pos === 0 ? n.head.y : n.subBoxes[Math.min(grp.pos, n.subs.length) - 1].y]
-        : b.kind !== "bar" ? [b.x + b.w / 2, b.y] : [dot.x, dot.y];
-      grp.dot = { x: tip[0], y: tip[1] };
-    }
   }
   groups.sort((a, b) => a.dot.y - b.dot.y);
   let floor = -Infinity;
   for (const grp of groups) {
-    const k = grp.items.length, tot = grp.items.reduce((v, it) => v + it.h, 0) + (k - 1) * A.noteGap * s;
+    const k = grp.items.length, tot = k * noteH + (k - 1) * A.noteGap * s;
     let t = Math.max(grp.dot.y - tot / 2, floor + 3);
     floor = t + tot;
-    if (grp.balloon) {
-      const it = grp.items[0];
-      it.x = noteX; it.y = t + it.h / 2;
-      applyOffset(it);
-      it.tip = [grp.dot.x, grp.dot.y];
-      L.notes.push(it);
-      continue;
-    }
     // 点を動かすと、箱も一緒についていく（箱だけ動かすこともできる）
     placeDot(grp.dot, grp.uid);
     const ddx = grp.dot.x - grp.dot.x0, ddy = grp.dot.y - grp.dot.y0;
@@ -773,28 +728,11 @@ function layout(g, o) {
     }
   }
 
-  // 照査・打合せに付けた吹き出し：その箱の右に並べる（重なるときは下へずらす）
-  const tied = [], floors = {};
-  for (const host of byPosition(L.notes.filter(n => n.balloons))) {
-    for (const b of host.balloons) {
-      const it = { kind: "note", balloon: true, text: b.text, label: b.text, cat: "balloon", line: b.line, look: "proc", w: noteW, h: balH,
-                   unit: host.unit, pos: host.pos, host, uid: `${b.uid}|n0` };
-      it.x = host.x + host.w / 2 + noteW * 0.35 + it.w / 2;
-      const col = Math.round(it.x / 20);
-      it.y = Math.max(host.y, (floors[col] ?? -Infinity) + 3 + it.h / 2);
-      floors[col] = it.y + it.h / 2;
-      applyOffset(it);
-      it.tip = [host.x + host.w / 2, host.y];
-      tied.push(it);
-    }
-  }
-  L.notes.push(...tied);
-
-  // 照査①・打合せ①… も、位置の上から順に付け直す（吹き出しには番号を付けない）
+  // 照査①・打合せ①… も、位置の上から順に付け直す
   if (o.num) {
     const k = {};
     for (const it of byPosition(L.notes)) {
-      if (it.balloon || /[①-⑳]$/.test(it.text)) continue;
+      if (/[①-⑳]$/.test(it.text)) continue;
       k[it.text] = (k[it.text] || 0) + 1;
       it.label = it.text + CIRCLED(k[it.text]);
     }
@@ -804,8 +742,7 @@ function layout(g, o) {
   const base = Math.max(7, Math.min(16, A.box * s * 0.4));
   fitGroup(g.nodes.filter(n => isShape(n) && !hasSubs(n)).concat(g.nodes.filter(hasSubs).map(n => n.head)), base, L.fam);
   fitGroup(g.nodes.filter(hasSubs).flatMap(n => n.subBoxes), base * 0.92, L.fam);
-  fitGroup(L.notes.filter(n => !n.balloon), base * 0.95, L.fam);
-  fitGroup(L.notes.filter(n => n.balloon), base * 0.9, L.fam);
+  fitGroup(L.notes, base * 0.95, L.fam);
   for (const n of g.nodes.filter(hasSubs)) { n.fs = n.head.fs; n.wrapped = n.head.wrapped; }
 
   // 矢印の通り道。route: straight / v3=縦→横→縦 / h3=横→縦→横 / j4=右→縦→左→下 / h2=横→縦 / v2=縦→横
@@ -1022,18 +959,6 @@ function svgText(t, color, align) {
 function svgRect(t, fill, line, lineW, cls = "") {
   return `<rect${cls ? ` class="${cls}"` : ""} x="${f1(t.x - t.w / 2)}" y="${f1(topOf(t))}" width="${f1(t.w)}" height="${f1(t.h)}" fill="#${fill}" stroke="#${line}" stroke-width="${lineW}"/>`;
 }
-// 吹き出しの形（PowerPoint の「四角形吹き出し」と同じ形）。先は n.tip
-function calloutPath(n) {
-  const x = n.x - n.w / 2, y = topOf(n), w = n.w, h = n.h, T = n.tip;
-  const dx = T[0] - n.x, dy = T[1] - n.y;
-  const tl = [x, y], tr = [x + w, y], br = [x + w, y + h], bl = [x, y + h];
-  const P = pts => `M${pts.map(p => f1(p[0]) + "," + f1(p[1])).join(" L")} Z`;
-  if (Math.abs(dx) <= w / 2 && Math.abs(dy) <= h / 2) return P([tl, tr, br, bl]);
-  const x1 = x + w * (dx > 0 ? 7 : 2) / 12, x2 = x + w * (dx > 0 ? 10 : 5) / 12;
-  const y1 = y + h * (dy > 0 ? 7 : 2) / 12, y2 = y + h * (dy > 0 ? 10 : 5) / 12;
-  if (Math.abs(dx) * h >= Math.abs(dy) * w) return dx > 0 ? P([tl, tr, [x + w, y1], T, [x + w, y2], br, bl]) : P([tl, tr, br, bl, [x, y2], T, [x, y1]]);
-  return dy > 0 ? P([tl, tr, br, [x2, y + h], T, [x1, y + h], bl]) : P([tl, [x1, y], T, [x2, y], tr, br, bl]);
-}
 function svgOf(L, st, forImage) {
   const c = v => "#" + v;
   const out = [];
@@ -1082,9 +1007,7 @@ function svgOf(L, st, forImage) {
     out.push(`</g>`);
   });
   L.notes.forEach((n, j) => {
-    const shape = n.balloon ? `<path class="shape" d="${calloutPath(n)}" fill="#${st.notes.balloon}" stroke="#${st.proc[1]}" stroke-width="${st.lineW}"/>`
-      : svgRect(n, st.notes[n.cat], st.proc[1], st.lineW, "shape");
-    out.push(`<g class="node" data-note="${j}" data-line="${n.line}">${shape}${svgText(n, st.text, "c")}</g>`);
+    out.push(`<g class="node" data-note="${j}" data-line="${n.line}">${svgRect(n, st.notes[n.cat], st.proc[1], st.lineW, "shape")}${svgText(n, st.text, "c")}</g>`);
   });
   // 矢印の両はし（ドラッグして別の箱に付け替える）
   if (!forImage) L.lines.forEach((ln, i) => {
@@ -1123,13 +1046,13 @@ function slideXml(L, st, font) {
   const kindName = { proc: "処理", dec: "判断", term: "端子" };
 
   // 文字の入った図形（t は x, y, w, h, look, label, fs）
-  const shapeXml = (t, name, prst, fill, line, align = "ctr", av = "") => {
+  const shapeXml = (t, name, prst, fill, line, align = "ctr") => {
     const ins = EMU(textBox(t).ins);
     const body = t.label === undefined ? "" :
       `<p:txBody><a:bodyPr wrap="square" lIns="${ins}" tIns="0" rIns="${ins}" bIns="0" rtlCol="0" anchor="ctr"><a:noAutofit/></a:bodyPr><a:lstStyle/>` +
       `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPts val="${Math.round(t.fs * LH * 100)}"/></a:lnSpc></a:pPr>${runXml(t.label, t.fs, st.text, font)}</a:p></p:txBody>`;
     return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${name} ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>` +
-      `<p:spPr>${xfrm(t.x - t.w / 2, topOf(t), t.w, t.h)}<a:prstGeom prst="${prst}"><a:avLst>${av}</a:avLst></a:prstGeom>` +
+      `<p:spPr>${xfrm(t.x - t.w / 2, topOf(t), t.w, t.h)}<a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom>` +
       `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>${lnXml(line, st.lineW, false, false)}</p:spPr>${body}</p:sp>`;
   };
 
@@ -1168,13 +1091,7 @@ function slideXml(L, st, font) {
     return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="点 ${id++}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(d.x - r, d.y - r, r * 2, r * 2)}` +
       `<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${st.arrow}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr></p:sp>`;
   };
-  const noteXml = (nt, ni) => {
-    noteIds[ni] = id;
-    if (!nt.balloon) return shapeXml(nt, "照査・打合せ", "rect", st.notes[nt.cat], st.proc[1]);
-    // 吹き出しの先は、図形の真ん中からの割合で指定する
-    return shapeXml(nt, "吹き出し", "wedgeRectCallout", st.notes.balloon, st.proc[1], "ctr",
-      adj("adj1", (nt.tip[0] - nt.x) / nt.w) + adj("adj2", (nt.tip[1] - nt.y) / nt.h));
-  };
+  const noteXml = (nt, ni) => { noteIds[ni] = id; return shapeXml(nt, "照査・打合せ", "rect", st.notes[nt.cat], st.proc[1]); };
   const dotOf = ln => [dotIds[L.dots.indexOf(ln.dot)], 0];
   const noteLineXml = ln => connXml(ln, dotOf(ln), [noteIds[L.notes.indexOf(ln.b)], 1]);
   const done = new Set();   // もう書いた点・線
@@ -1480,7 +1397,7 @@ function update() {
   gutter.innerHTML = lineInfo.map((li, i) => {
     const kind = li.type === "step" || (li.type === "lane" && li.n) ? "step" : ["lane", "sub", "memo", "side"].includes(li.type) ? "lane" : "";
     const cls = [kind, errLines.has(i) ? "err" : ""].join(" ").trim();
-    const label = li.n ? li.n : li.balloon ? "「" : { lane: "∥", note: "※", sub: "・", memo: "@", side: "＜" }[li.type] || "";
+    const label = li.n ? li.n : { lane: "∥", note: "※", sub: "・", memo: "@", side: "＜" }[li.type] || "";
     return `<div${cls ? ` class="${cls}"` : ""}>${label}</div>`;
   }).join("");
   gutter.scrollTop = ta.scrollTop;
@@ -1645,7 +1562,6 @@ const INSERTS = {
   memo: () => insertLine("@照査、打合せ", 1, 6),
   meet: () => insertLine("@打合せ", 1, 3),
   side: () => insertLine("< 並行する作業 > #1", 2, 6),
-  balloon: () => insertLine("「吹き出し」", 1, 4),
 };
 document.querySelectorAll("[data-ins]").forEach(b => b.addEventListener("click", () => INSERTS[b.dataset.ins]()));
 
@@ -1988,22 +1904,14 @@ function reorderByDrag(key) {
 }
 
 // 行 from を、行 at の前に動かす（見えない行の番号も一緒に動かす）
-// 行を動かす。すぐ下に付いている吹き出し（「」の行）も一緒に動かす。入れる所は吹き出しの間に割り込まない
-function moveLineWith(from, at) {
-  const info = state.lineInfo;
-  while (info[at] && info[at].balloon) at++;
-  let e = from;
-  while (info[e + 1] && info[e + 1].balloon) e++;
-  const k = e - from + 1;
-  if (at >= from && at <= e + 1) return false;
+function moveLine(from, at) {
   const lines = ta.value.split("\n");
-  const ls = lines.splice(from, k), ids = lineIds.splice(from, k);
-  if (at > e) at -= k;
-  lines.splice(at, 0, ...ls);
-  lineIds.splice(at, 0, ...ids);
+  const [ln] = lines.splice(from, 1), [id] = lineIds.splice(from, 1);
+  if (at > from) at--;
+  lines.splice(at, 0, ln);
+  lineIds.splice(at, 0, id);
   prevLines = lines;
   ta.value = lines.join("\n");
-  return true;
 }
 
 // ---------- ドラッグで落とした先に合わせて、手順の欄の行を組み替える ----------
@@ -2267,7 +2175,7 @@ function reorderSub(node, j, dy) {
   boxes.forEach((b, k) => { if (k !== j && b.y < y) to++; });
   if (to === j) return false;
   const others = subs.filter((_, k) => k !== j);
-  moveLineWith(subs[j].line, to < others.length ? others[to].line : others[others.length - 1].line + 1);
+  moveLine(subs[j].line, to < others.length ? others[to].line : others[others.length - 1].line + 1);
   update();
   commit();
   toast(`小項目「${subs[j].text}」を ${to + 1} 番目に並べ替えました（手順の欄も同じ順番です）。`, "元に戻す", undo);
@@ -2308,58 +2216,14 @@ function moveNoteByDrag(key, atY) {
     at++;
   }
   const from = note.line, uid = lineIds[from], label = clean(lines[from].replace(NOTE_RE, ""));
-  if (!moveLineWith(from, at)) return false;
+  if (at === from || at === from + 1) return false;
+  moveLine(from, at);
   // 新しい場所の並びに任せる（手で動かした分は消す）
   for (const k of Object.keys(offsets)) if (k.startsWith(`${uid}|n`) || k === `●${uid}` || k.startsWith(`●${uid}|`)) delete offsets[k];
   update();
   commit();
   const where = best.pos === 0 && hasSubs(nodeOf(best.unit)) ? "の見出しの横" : best.pos < (nodeOf(best.unit).subs || []).length ? `の小項目 ${best.pos} と ${best.pos + 1} の間` : "のあと";
   toast(`「${label}」を「${units[best.unit].text || "同時進行"}」${where}に動かしました（手順の欄の @ の行も動かしました）。`, "元に戻す", undo);
-  return true;
-}
-
-// 吹き出しを照査・打合せの箱や手順の箱（小項目）の上で離したら、そこに付け替える（手順の欄の「」の行も動かす）。
-// ほかの所で離したときは、置いた場所のまま（先は元の箱を指したまま）
-function dropBalloon(key, p) {
-  const { g, L } = state;
-  const b = L.notes.find(n => n.key === key && n.balloon);
-  if (!b) return false;
-  const lines = ta.value.split("\n");
-  const over = n => Math.abs(p.x - n.x) <= n.w / 2 + 2 && Math.abs(p.y - n.y) <= n.h / 2 + 2;
-  let after, suffix = "", where;
-  const host = L.notes.find(n => !n.balloon && over(n));
-  if (host) {
-    if (b.host === host) return false;
-    // 「@」の行のいちばん後ろの箱でなければ、「＞名前」で付け先を書く
-    const items = clean(lines[host.line]).replace(NOTE_RE, "").split(/[、,，・\/／]/).map(clean).filter(Boolean);
-    if (+host.uid.split("|n").pop() < items.length - 1) suffix = `＞${noteUnsafe(host.text)}`;
-    after = host.line;
-    where = host.label;
-  } else {
-    let hit = null;
-    g.units.forEach((u, i) => {
-      const n = L.nodes[g.entry[i]];
-      if (!hit && isShape(n) && over(n)) hit = { u, i, n, j: hasSubs(n) ? n.subBoxes.findIndex(over) : -1 };
-    });
-    if (!hit) return false;
-    const { u, i, n, j } = hit, k = hasSubs(n) ? n.subs.length : 0;
-    const pos = j >= 0 ? j + 1 : 0, cur = k ? Math.min(b.pos, k) : 0;
-    if (!b.host && b.unit === i && cur === pos) return false;
-    after = j >= 0 ? u.subs[j].line : u.line;
-    where = j >= 0 ? n.subBoxes[j].label : n.label;
-  }
-  const id = lineIds[b.line], afterId = lineIds[after], text = balloonOf(lines[b.line]).text;
-  editRows(rows => {
-    const [row] = rows.splice(rowAt(rows, id), 1);
-    row.t = `「${text}」${suffix}`;
-    let at = rowAt(rows, afterId) + 1;
-    while (at < rows.length && BALLOON_RE.test(clean(rows[at].t))) at++;   // 先に付いている吹き出しの下
-    rows.splice(at, 0, row);
-  });
-  delete offsets[b.key];
-  update();
-  commit();
-  toast(`吹き出し「${text}」を「${where}」に付けました（手順の欄の「」の行も動かしました）。`, "元に戻す", undo);
   return true;
 }
 
@@ -2400,8 +2264,8 @@ paper.addEventListener("pointerdown", e => {
   drag = {
     key: n.key, line: el.dataset.line !== undefined ? +el.dataset.line : -1, start: svgPoint(e),
     base: (offsets[n.key] || [0, 0]).slice(), moved: false, dot: dotEl ? n : null, route: el === wireEl ? n.route : null,
-    wire: el === wireEl, x: e.clientX, y: e.clientY, isNote: el.dataset.note !== undefined, balloon: !!n.balloon,
-    box: !dotEl && el !== wireEl && !n.balloon ? boxInfo(n) : null,
+    wire: el === wireEl, x: e.clientX, y: e.clientY, isNote: el.dataset.note !== undefined,
+    box: !dotEl && el !== wireEl ? boxInfo(n) : null,
   };
   e.preventDefault();
 });
@@ -2475,8 +2339,7 @@ window.addEventListener("pointerup", e => {
     return;
   }
   if (d.moved && d.dot && dropDot(d.key)) return;
-  if (d.moved && d.balloon && dropBalloon(d.key, svgPoint(e))) return;
-  if (d.moved && d.isNote && !d.balloon && moveNoteByDrag(d.key)) return;
+  if (d.moved && d.isNote && moveNoteByDrag(d.key)) return;
   if (d.moved && !d.dot && !d.wire && d.box && dropBox(d.key)) return;
   if (d.moved && d.box && offsets[d.key]) {
     const [ox, oy] = offsets[d.key], [nx, ny] = keepStraight(d.box, ox, oy, Infinity);
