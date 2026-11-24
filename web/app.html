@@ -192,6 +192,7 @@ textarea#src { display: block; width: 100%; height: 360px; resize: vertical; bor
           <tr><td>打合せ</td><td>@打合せ</td></tr>
           <tr><td>並行（左）</td><td>&lt; 作業 &gt; 合流先</td></tr>
           <tr><td>枝分かれ</td><td>@名前（名前は自由。照査・打合せ以外は番号なし）</td></tr>
+          <tr><td>左に枝分かれ</td><td>@&lt;名前（図の上で箱を本線の反対側へドラッグしても切り替わる）</td></tr>
         </table>
       </details>
     </section>
@@ -308,7 +309,11 @@ function classify(raw) {
 const LANE_RE = /^[|｜]\s*/;          // 同時進行の列（1 行が 1 列、→ で同じ列の次の作業）
 const SUB_RE = /^[・･\-*]\s*/;         // 小項目（直前の手順の中に入る）
 const SIDE_RE = /^[<＜]\s*/;          // 左に並行して進む手順（> で合流先）
-const NOTE_RE = /^[@＠]\s*/;          // 照査・打合せなど（右に付く）
+const NOTE_RE = /^[@＠]\s*/;          // 照査・打合せなど（右に付く。「@<」で始めると左に付く）
+const NOTE_LEFT_RE = /^[@＠]\s*[<＜]\s*/;
+// 「@」の行の名前の並びと、左右（左なら true）
+const noteLine = t => { t = clean(t); const left = NOTE_LEFT_RE.test(t); return { left, items: t.replace(left ? NOTE_LEFT_RE : NOTE_RE, "").split(/[、,，・\/／]/).map(clean).filter(Boolean) }; };
+const noteRow = (items, left) => `@${left ? "<" : ""}${items.join("、")}`;
 const NUM_RE = /^[0-9０-９]+[.．)）、:：](?![0-9０-９])\s*/;
 const SUBNUM_RE = /^[（(][0-9０-９]+[)）]\s*/;
 
@@ -327,9 +332,9 @@ function parse(src, autoNum, ids) {
     if (/^(※|'|\/\/)/.test(s)) { lineInfo.push({ type: "note" }); return; }
 
     if (NOTE_RE.test(s)) {
-      const items = s.replace(NOTE_RE, "").split(/[、,，・\/／]/).map(clean).filter(Boolean);
+      const { items, left } = noteLine(s);
       // 見出しのすぐ後 → 見出しの横 / 小項目の間 → その間 / 最後 → 次の手順との間
-      if (lastMain && items.length) lastMain.notes.push({ pos: lastStep === lastMain ? lastMain.subs.length : Infinity, items, line: i, uid: idOf(i) });
+      if (lastMain && items.length) lastMain.notes.push({ pos: lastStep === lastMain ? lastMain.subs.length : Infinity, items, left, line: i, uid: idOf(i) });
       lineInfo.push({ type: "memo" });
       return;
     }
@@ -599,18 +604,19 @@ function layout(g, o) {
   let minOff = -Math.max(0, ...sideCol), maxOff = 0;
   for (const n of g.nodes) if (n.side) maxOff = Math.max(maxOff, n.col);
   for (const u of g.units) if (u.kind === "block") { const h = (u.lanes.length - 1) / 2; minOff = Math.min(minOff, -h); maxOff = Math.max(maxOff, h); }
-  const hasNotes = g.units.some(u => u.notes && u.notes.length);
-  const noteCols = hasNotes ? 0.85 : 0;
+  // 照査・打合せ（枝分かれ）の列：右と、「@<」の行があれば左にも
+  const hasNote = left => g.units.some(u => (u.notes || []).some(nt => !!nt.left === left));
+  const noteColsR = hasNote(false) ? 0.85 : 0, noteColsL = hasNote(true) ? 0.85 : 0;
 
   const aL = W * 0.04, aR = W - W * 0.04, aT = o.title ? H * 0.15 : H * 0.05, aB = H - H * 0.05;
-  const cols = maxOff - minOff + 1 + noteCols;
+  const cols = maxOff - minOff + 1 + noteColsR + noteColsL;
   const jumps = g.edges.filter(e => e.type === "jump").length;
   const laneSpace = jumps ? 14 + 12 * jumps : 0;
   const cp = Math.min((aR - aL - laneSpace) / cols, 250);
   const s = Math.min((aB - aT) / total, 90);
   const boxW = cp * 0.7;
   const left = aL + ((aR - aL) - (cols * cp + laneSpace)) / 2;
-  const mainX = left + cp * (-minOff + 0.5);
+  const mainX = left + cp * (-minOff + 0.5 + noteColsL);
   const top = aT + ((aB - aT) - total * s) / 2;
   const Y = a => top + a * s;
 
@@ -637,9 +643,10 @@ function layout(g, o) {
   }
   L.mainX = mainX; L.cp = cp;   // ドラッグで落とした先を決めるのに使う
 
-  // 照査・打合せの箱（右の列）
+  // 照査・打合せの箱（右の列。「@<」の行は左の列）
   const noteW = boxW * 0.62, noteH = A.note * s;
   const noteX = mainX + (maxOff > 0 ? maxOff * cp : 0) + boxW / 2 + noteW * 0.7 + noteW / 2;
+  const noteXL = mainX + minOff * cp - boxW / 2 - noteW * 0.7 - noteW / 2;
   const counts = {};
   const groups = [];
   g.units.forEach((u, i) => {
@@ -650,9 +657,9 @@ function layout(g, o) {
         counts[base] = (counts[base] || 0) + 1;
         const label = o.num && NOTE_LINE_RE.test(base) && !/[①-⑳]$/.test(base) ? base + CIRCLED(counts[base]) : base;
         const cat = /照査/.test(base) ? "check" : /打合|打ち合|協議|会議/.test(base) ? "meet" : "other";
-        return { kind: "note", text: base, label, cat, line: grp.line, look: "proc", w: noteW, h: noteH, unit: i, pos: grp.pos, uid: `${grp.uid}|n${grp.items.indexOf(t)}` };
+        return { kind: "note", text: base, label, cat, line: grp.line, look: "proc", w: noteW, h: noteH, unit: i, pos: grp.pos, left: !!grp.left, uid: `${grp.uid}|n${grp.items.indexOf(t)}` };
       });
-      groups.push({ unit: i, pos: grp.pos, items, line: grp.line, uid: grp.uid });
+      groups.push({ unit: i, pos: grp.pos, items, line: grp.line, uid: grp.uid, left: !!grp.left });
     }
   });
 
@@ -665,7 +672,12 @@ function layout(g, o) {
     n.key = seen[base] > 1 ? `${base}|${seen[base]}` : base;
     n.nx = n.x; n.ny = n.y;   // 動かす前の位置
     const off = o.offsets[n.key];
-    if (off) { n.x += off[0]; n.y += off[1]; L.moved++; }
+    if (off) { n.x += off[0]; n.y += off[1]; L.moved++; inPaper(n, n.w / 2, n.h / 2); }
+  };
+  // 動かした図形は紙の外に出さない（はみ出して見切れないように）
+  const inPaper = (n, hw, hh) => {
+    n.x = Math.min(Math.max(n.x, hw + 2), W - hw - 2);
+    n.y = Math.min(Math.max(n.y, hh + 2), H - hh - 2);
   };
   g.nodes.filter(isShape).forEach(applyOffset);
   // 点（照査・打合せや並行作業が本線につく所）も動かせる。動かした分は点の位置そのもの
@@ -675,7 +687,7 @@ function layout(g, o) {
     seen[base] = (seen[base] || 0) + 1;
     d.key = seen[base] > 1 ? `${base}|${seen[base]}` : base;
     const off = o.offsets[d.key];
-    if (off) { d.x += off[0]; d.y += off[1]; L.moved++; }
+    if (off) { d.x += off[0]; d.y += off[1]; L.moved++; inPaper(d, 3, 3); }
     return d;
   };
 
@@ -698,7 +710,7 @@ function layout(g, o) {
   for (const grp of groups) {
     const n = nodeOf(grp.unit);
     let dot;
-    if (hasSubs(n) && grp.pos === 0) dot = { x: n.x + n.w / 2, y: n.head.y, onEdge: true, owner: n.idx };
+    if (hasSubs(n) && grp.pos === 0) dot = { x: n.x + (grp.left ? -1 : 1) * n.w / 2, y: n.head.y, onEdge: true, owner: n.idx };
     else if (hasSubs(n) && grp.pos < n.subs.length) {
       const a = n.subBoxes[grp.pos - 1], b = n.subBoxes[grp.pos];
       dot = { x: n.x, y: (bottomOf(a) + topOf(b)) / 2, owner: n.idx };
@@ -711,21 +723,23 @@ function layout(g, o) {
     grp.dot = dot;
   }
   groups.sort((a, b) => a.dot.y - b.dot.y);
-  let floor = -Infinity;
+  const floors = { true: -Infinity, false: -Infinity };   // 左右の列ごとに、上から重ならないように並べる
   for (const grp of groups) {
     const k = grp.items.length, tot = k * noteH + (k - 1) * A.noteGap * s;
-    let t = Math.max(grp.dot.y - tot / 2, floor + 3);
-    floor = t + tot;
+    let t = Math.max(grp.dot.y - tot / 2, floors[grp.left] + 3);
+    floors[grp.left] = t + tot;
     // 点を動かすと、箱も一緒についていく（箱だけ動かすこともできる）
     placeDot(grp.dot, grp.uid);
     const ddx = grp.dot.x - grp.dot.x0, ddy = grp.dot.y - grp.dot.y0;
-    grp.items.forEach((it, j) => { it.x = noteX + ddx; it.y = t + j * (noteH + A.noteGap * s) + noteH / 2 + ddy; });
+    grp.items.forEach((it, j) => { it.x = (grp.left ? noteXL : noteX) + ddx; it.y = t + j * (noteH + A.noteGap * s) + noteH / 2 + ddy; });
     grp.items.forEach(applyOffset);
     L.dots.push(grp.dot);
     for (const it of grp.items) {
       L.notes.push(it);
-      const S = [grp.dot.x, grp.dot.y], E = [it.x - it.w / 2, it.y];
-      const ln = Math.abs(S[1] - E[1]) < 0.5 ? { route: "straight" } : { route: "h3", mx: E[0] - noteW * 0.35 };
+      // 点から見て箱のある側のふちにつなぐ（ドラッグで反対側に動かしている間も）
+      const toLeft = it.x < grp.dot.x;
+      const S = [grp.dot.x, grp.dot.y], E = [it.x + (toLeft ? 1 : -1) * it.w / 2, it.y];
+      const ln = Math.abs(S[1] - E[1]) < 0.5 ? { route: "straight" } : { route: "h3", mx: E[0] + (toLeft ? 1 : -1) * noteW * 0.35 };
       L.lines.push(Object.assign(ln, { S, E, type: "note", a: -1, b: it, dot: grp.dot, dashed: true, arrow: false }));
     }
   }
@@ -1095,7 +1109,7 @@ function slideXml(L, st, font) {
   };
   const noteXml = (nt, ni) => { noteIds[ni] = id; return shapeXml(nt, "照査・打合せ", "rect", st.notes[nt.cat], st.proc[1]); };
   const dotOf = ln => [dotIds[L.dots.indexOf(ln.dot)], 0];
-  const noteLineXml = ln => connXml(ln, dotOf(ln), [noteIds[L.notes.indexOf(ln.b)], 1]);
+  const noteLineXml = ln => connXml(ln, dotOf(ln), [noteIds[L.notes.indexOf(ln.b)], ln.E[0] > ln.b.x ? 3 : 1]);
   const done = new Set();   // もう書いた点・線
 
   // 箱ごとに、その箱に付いている点と照査・打合せ（と破線）を集める
@@ -2185,7 +2199,8 @@ function reorderSub(node, j, dy) {
   return true;
 }
 
-// 照査・打合せの箱を別の場所に動かしたら、手順の欄の「@」の行もそこへ動かす
+// 照査・打合せの箱を別の場所に動かしたら、手順の欄の「@」の行もそこへ動かす。
+// 本線の反対側へ動かしたら、その箱だけ左右を入れ替える（行の頭が「@」⇔「@<」）
 function moveNoteByDrag(key, atY) {
   const { g, L, lineInfo } = state;
   const note = L.notes.find(n => n.key === key);
@@ -2206,7 +2221,9 @@ function moveNoteByDrag(key, atY) {
   if (!slots.length) return false;
   const best = slots.reduce((a, b) => (Math.abs(b.y - y) < Math.abs(a.y - y) ? b : a));
   const cur = nodeOf(note.unit), k0 = hasSubs(cur) ? cur.subs.length : 0;
-  if (best.unit === note.unit && best.pos === Math.min(note.pos, k0)) return false;
+  const toLeft = atY === undefined && note.x < L.mainX, flip = atY === undefined && toLeft !== !!note.left;
+  const same = best.unit === note.unit && best.pos === Math.min(note.pos, k0);
+  if (same && !flip) return false;
 
   // 入れる行：見出しのすぐ下／(pos-1) 番目の小項目のすぐ下／その手順のかたまりの最後
   const u = units[best.unit], lines = ta.value.split("\n");
@@ -2218,15 +2235,38 @@ function moveNoteByDrag(key, atY) {
     while (at + 1 < lines.length && lineInfo[at + 1] && (["sub", "memo", "side"].includes(lineInfo[at + 1].type) || (lineInfo[at + 1].type === "lane" && !lineInfo[at + 1].n))) at++;
     at++;
   }
-  const from = note.line, uid = lineIds[from], label = clean(lines[from].replace(NOTE_RE, ""));
-  if (at === from || at === from + 1) return false;
-  moveLine(from, at);
+  const from = note.line, uid = lineIds[from], nl = noteLine(lines[from]);
+  let label = nl.items.join("、");
+  if (!flip) {
+    if (at === from || at === from + 1) return false;
+    moveLine(from, at);
+  } else {
+    // この箱だけ反対側へ。行き先に同じ側の「@」の行があればそこに足す（1 つの点にまとめる）
+    const idx = +note.uid.split("|n").pop(), name = nl.items[idx], kb = (nodeOf(best.unit).subs || []).length;
+    const dest = (units[best.unit].notes || []).find(nt => nt.line !== from && !!nt.left === toLeft && Math.min(nt.pos, kb) === best.pos);
+    label = noteUnsafe(name);
+    editRows(rows => {
+      const single = nl.items.length === 1;
+      let moving = { t: "", id: newId() };
+      if (single) { moving = rows.splice(from, 1)[0]; if (at > from) at--; }
+      else rows[from].t = noteRow(nl.items.filter((_, j) => j !== idx), nl.left);
+      if (dest) {
+        const d = rowAt(rows, lineIds[dest.line]), dl = noteLine(rows[d].t);
+        rows[d].t = noteRow(dl.items.concat(name), toLeft);
+      } else {
+        moving.t = noteRow([name], toLeft);
+        rows.splice(at, 0, moving);
+      }
+    });
+  }
   // 新しい場所の並びに任せる（手で動かした分は消す）
   for (const k of Object.keys(offsets)) if (k.startsWith(`${uid}|n`) || k === `●${uid}` || k.startsWith(`●${uid}|`)) delete offsets[k];
   update();
   commit();
   const where = best.pos === 0 && hasSubs(nodeOf(best.unit)) ? "の見出しの横" : best.pos < (nodeOf(best.unit).subs || []).length ? `の小項目 ${best.pos} と ${best.pos + 1} の間` : "のあと";
-  toast(`「${label}」を「${units[best.unit].text || "同時進行"}」${where}に動かしました（手順の欄の @ の行も動かしました）。`, "元に戻す", undo);
+  const unitName = units[best.unit].text || "同時進行";
+  toast(flip ? `「${label}」を${toLeft ? "左" : "右"}側に移して、「${unitName}」${where}に付けました（手順の欄の @ の行も直しました）。`
+    : `「${label}」を「${unitName}」${where}に動かしました（手順の欄の @ の行も動かしました）。`, "元に戻す", undo);
   return true;
 }
 
